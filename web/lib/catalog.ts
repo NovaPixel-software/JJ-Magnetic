@@ -45,21 +45,30 @@ export interface Paper {
   label: string;
   wmm: number;
   hmm: number;
+  /** Most pieces to put on the sheet. Fewer than would fit leaves more room around each piece. */
+  maxCount?: number;
 }
 
-export const PRODUCTS: Product[] = [
-  { id: 'magnet', label: 'Fridge Magnet' },
+/** Every event is a magnet. The setup form has no product choice, so new events are saved with this one. */
+export const DEFAULT_PRODUCT_ID = 'magnet';
+export const PRODUCTS: Product[] = [{ id: DEFAULT_PRODUCT_ID, label: 'Magnet' }];
+
+/** Products that earlier events were saved with. They are not offered any more, but those events still open. */
+const LEGACY_PRODUCTS: Product[] = [
+  { id: 'round-magnet', label: 'Round Magnet' },
+  { id: 'square-magnet', label: 'Square Magnet' },
+  { id: 'acrylic', label: 'Acrylic Magnet' },
   { id: 'print', label: 'Photo Print' },
   { id: 'badge', label: 'Badge / Pin' },
   { id: 'keychain', label: 'Keychain' },
   { id: 'sticker', label: 'Sticker' },
 ];
 
-// The order here is the order of the Photo Shape dropdown: Round first, Square second.
+// Every shape, including the ones only old events use. The Photo Shape dropdown shows OFFERED_SHAPE_IDS, in that order.
 export const SHAPES: Shape[] = [
-  { id: 'round', label: 'Round / Circle', icon: 'circle', clip: 'ellipse' },
-  { id: 'square', label: 'Square (1:1)', icon: 'crop_square', clip: 'rect' },
-  { id: 'rect-landscape', label: 'Rectangle Landscape (3:2)', icon: 'crop_landscape', clip: 'rect' },
+  { id: 'round', label: 'Round 2 inch', icon: 'circle', clip: 'ellipse' },
+  { id: 'square', label: 'Square 2 inch', icon: 'crop_square', clip: 'rect' },
+  { id: 'rect-landscape', label: 'Rectangle 3.5 × 2.1 inches', icon: 'crop_landscape', clip: 'rect' },
   { id: 'rect-portrait', label: 'Rectangle Portrait (2:3)', icon: 'crop_portrait', clip: 'rect' },
   { id: 'oval', label: 'Oval', icon: 'egg', clip: 'ellipse' },
   { id: 'rounded', label: 'Rounded Rectangle', icon: 'rounded_corner', clip: 'rounded' },
@@ -143,6 +152,8 @@ export const TEMPLATES: Template[] = [
   magnetRect('rect-landscape', 80, 53),
   magnetRect('rect-landscape', 89, 51),
   magnetRect('rect-landscape', 88.9, 63.5), // 3.5 x 2.5 inch
+  magnetRect('rect-landscape', 63.5, 88.9), // 2.5 x 3.5 inch
+  magnetRect('rect-landscape', 114.3, 88.9), // 4.5 x 3.5 inch
   magnetRect('rect-portrait', 53, 80),
   magnetRect('rect-portrait', 63.5, 88.9), // 2.5 x 3.5 inch
   cutTemplate('magnet-round-37x37', 'round', 37, 37, RING_ROUND_MM, SPACE_ROUND),
@@ -172,17 +183,28 @@ export const TEMPLATES: Template[] = [
   t('sticker', 'rounded', 76, 51),
 ];
 
-export const PAPERS: Paper[] = [
+const A4_LABEL = 'A4 (210 × 297 mm)';
+const A4: Paper = { id: 'a4', label: A4_LABEL, wmm: 210, hmm: 297 };
+/** The same A4 sheet with at most 9 pieces on it (3 across, 3 down), for a wider space between them. */
+const A4_NINE: Paper = { id: 'a4-9', label: A4_LABEL, wmm: 210, hmm: 297, maxCount: 9 };
+
+/** Papers that earlier events were saved with. Only A4 is offered now, the rest are kept so old events still open. */
+const LEGACY_PAPERS: Paper[] = [
   { id: 'a6', label: 'A6 (105 × 148 mm)', wmm: 105, hmm: 148 },
   { id: 'a5', label: 'A5 (148 × 210 mm)', wmm: 148, hmm: 210 },
-  { id: 'a4', label: 'A4 (210 × 297 mm)', wmm: 210, hmm: 297 },
   { id: 'a3', label: 'A3 (297 × 420 mm)', wmm: 297, hmm: 420 },
   { id: '4x6', label: '4 × 6 in photo paper (102 × 152 mm)', wmm: 102, hmm: 152 },
   { id: '5x7', label: '5 × 7 in photo paper (127 × 178 mm)', wmm: 127, hmm: 178 },
   { id: '13x19', label: '13 × 19 in (330 × 483 mm)', wmm: 330, hmm: 483 },
 ];
 
-export const getProduct = (id: string) => PRODUCTS.find((p) => p.id === id);
+/** The shapes the Photo Shape dropdown offers, in order. */
+export const OFFERED_SHAPE_IDS = ['round', 'square', 'rect-landscape'];
+
+/** The template sizes offered for each shape: round 58 mm, square 50 mm, and two rectangles. */
+const OFFERED_TEMPLATE_IDS = [ROUND_CUT_ID, 'magnet-square-50x50', 'magnet-rect-landscape-63.5x88.9', 'magnet-rect-landscape-114.3x88.9'];
+
+export const getProduct = (id: string) => PRODUCTS.find((p) => p.id === id) ?? LEGACY_PRODUCTS.find((p) => p.id === id);
 export const getShape = (id: string) => SHAPES.find((s) => s.id === id);
 export const getTemplate = (id: string) => TEMPLATES.find((x) => x.id === (LEGACY_TEMPLATE_IDS[id] ?? id));
 
@@ -197,10 +219,13 @@ export function cutText(t: Template): string {
   if (!t.cutW || !t.cutH) return '';
   return t.cutW === t.cutH ? `${t.cutW} mm` : `${t.cutW}×${t.cutH} mm`;
 }
-export const getPaper = (id: string) => PAPERS.find((p) => p.id === id);
+export const getPaper = (id: string) => [A4, A4_NINE, ...LEGACY_PAPERS].find((p) => p.id === id);
 
-export const shapesForProduct = (productId: string) =>
-  SHAPES.filter((s) => TEMPLATES.some((x) => x.productId === productId && x.shapeId === s.id));
+/** The shapes to offer. The same three for every product. */
+export const offeredShapes = () => OFFERED_SHAPE_IDS.map((id) => getShape(id)!);
 
-export const templatesFor = (productId: string, shapeId: string) =>
-  TEMPLATES.filter((x) => x.productId === productId && x.shapeId === shapeId);
+/** The sizes to offer for a shape. */
+export const templatesForShape = (shapeId: string) => OFFERED_TEMPLATE_IDS.map((id) => getTemplate(id)!).filter((x) => x.shapeId === shapeId);
+
+/** The paper choices: always A4. Round can have 12 or 9 pieces on it, square and rectangles just the most that fit. */
+export const paperOptionsFor = (shapeId: string): Paper[] => (shapeId === 'round' ? [A4, A4_NINE] : [A4]);

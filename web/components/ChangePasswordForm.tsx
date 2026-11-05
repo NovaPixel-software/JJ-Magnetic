@@ -62,7 +62,7 @@ export default function ChangePasswordForm({ onDone }: { onDone?: () => void }) 
         </p>
       )}
 
-      <button disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white hover:bg-[#e65100] disabled:opacity-60">
+      <button disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white hover:bg-[#b3205a] disabled:opacity-60">
         {busy && <Spinner className="h-4 w-4" />} Change password
       </button>
     </form>

@@ -1,13 +1,40 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ApiError, api } from '@/lib/api';
 import SupportLink, { withSupportLink } from '@/components/SupportLink';
 import { Icon, Spinner } from '@/components/ui';
 
-const input =
-  'h-11 w-full rounded-[10px] border-[1.5px] bg-white px-3.5 text-body-lg text-navy outline-none transition focus:border-[#12306a] focus:ring-4 focus:ring-[#12306a]/10';
+const BITS = ['❤️', '💖', '💗', '✨', '🎉', '🌸', '💕'];
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+
+/** A burst of hearts and confetti from the middle of an element, for a moment of celebration. */
+function celebrate(from: HTMLElement | null) {
+  if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = from.getBoundingClientRect();
+  const x0 = r.left + r.width / 2;
+  const y0 = r.top + r.height / 2;
+  for (let i = 0; i < 46; i++) {
+    const el = document.createElement('span');
+    el.className = 'love-confetti';
+    el.textContent = BITS[Math.floor(rnd(0, BITS.length))];
+    el.style.fontSize = `${rnd(14, 30)}px`;
+    document.body.appendChild(el);
+    const a = rnd(-Math.PI * 0.95, -Math.PI * 0.05);
+    const v = rnd(180, 520);
+    const dx = Math.cos(a) * v;
+    const dy = Math.sin(a) * v;
+    el.animate(
+      [
+        { transform: `translate(${x0}px, ${y0}px) scale(.4) rotate(0deg)`, opacity: 1 },
+        { transform: `translate(${x0 + dx}px, ${y0 + dy}px) scale(1) rotate(${rnd(-200, 200)}deg)`, opacity: 1, offset: 0.55 },
+        { transform: `translate(${x0 + dx * 1.15}px, ${y0 + dy + 340}px) scale(.8) rotate(${rnd(-360, 360)}deg)`, opacity: 0 },
+      ],
+      { duration: rnd(1500, 2400), easing: 'cubic-bezier(.2,.7,.3,1)' },
+    ).onfinish = () => el.remove();
+  }
+}
 
 export default function LoginForm() {
   const router = useRouter();
@@ -15,7 +42,9 @@ export default function LoginForm() {
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [welcome, setWelcome] = useState(false);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +57,10 @@ export default function LoginForm() {
     setError(null);
     try {
       const { redirectTo } = await api.login(email.trim(), password);
+      // a short celebration before the page changes
+      setWelcome(true);
+      celebrate(button.current);
+      await new Promise((r) => setTimeout(r, 1000));
       router.replace(redirectTo);
       router.refresh();
     } catch (err) {
@@ -39,36 +72,43 @@ export default function LoginForm() {
 
   // An inactive or expired account is not a typing mistake, so it gets a calmer amber box instead of red.
   const inactive = error?.code === 'INACTIVE' || error?.code === 'EXPIRED';
-  const border = error && !inactive ? 'border-error' : 'border-surface-container-high';
+  const bad = error && !inactive ? 'bad' : '';
 
   return (
-    <form
-      onSubmit={submit}
-      noValidate
-      className="relative mx-auto w-full max-w-[430px] rounded-[20px] border border-surface-container-high bg-white px-5 pb-6 pt-7 shadow-[0_24px_60px_rgba(10,25,49,0.12)] sm:px-8 lg:justify-self-end"
-    >
-      <span className="absolute inset-x-8 -top-px h-1 rounded-b-md bg-gradient-to-r from-primary-container via-[#ff9a3c] to-[#12306a]" />
+    <form onSubmit={submit} noValidate className="love-card">
+      <div className="love-medal">
+        <div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/jj-logo.png" alt="JJ Magnetic Memories" />
+        </div>
+      </div>
 
-      <h1 className="text-headline-lg font-extrabold text-navy">Sign in</h1>
-      <p className="mt-1 text-body-lg text-secondary">Use the email and password you were given.</p>
+      {error && (
+        <div
+          key={error.message}
+          role="alert"
+          className={`love-shake mb-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-body-md ${inactive ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-[#f6c3c9] bg-[#fff0f1] text-[#c62839]'}`}
+        >
+          <Icon name={error.code === 'EXPIRED' ? 'event_busy' : inactive ? 'block' : 'error'} className="!text-[18px]" fill />
+          <span>{withSupportLink(error.message)}</span>
+        </div>
+      )}
 
-      <label htmlFor="email" className="mb-1.5 mt-5 block text-label-lg text-navy">
-        Email
-      </label>
-      <input
-        id="email"
-        type="email"
-        autoComplete="username"
-        inputMode="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="you@example.com"
-        className={`${input} ${border}`}
-      />
+      <div className="relative mb-3.5">
+        <input
+          id="email"
+          type="email"
+          autoComplete="username"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          aria-label="Email"
+          className={`love-input ${bad}`}
+        />
+        <Icon name="mail" className="love-lead" />
+      </div>
 
-      <label htmlFor="password" className="mb-1.5 mt-5 block text-label-lg text-navy">
-        Password
-      </label>
       <div className="relative">
         <input
           id="password"
@@ -76,53 +116,34 @@ export default function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Enter your password"
-          className={`${input} ${border} pr-16`}
+          placeholder="Password"
+          aria-label="Password"
+          className={`love-input ${bad}`}
         />
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          aria-label={show ? 'Hide password' : 'Show password'}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-2 text-label-md font-bold text-[#12306a] hover:bg-[#eef2fb]"
-        >
-          {show ? 'Hide' : 'Show'}
+        <Icon name="lock" className="love-lead" />
+        <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'} className="love-eye">
+          <Icon name={show ? 'visibility_off' : 'visibility'} className="!text-[20px]" />
         </button>
       </div>
 
-      {error && (
-        <div
-          role="alert"
-          className={`mt-4 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-body-md ${inactive ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-error-container bg-error-container/50 text-on-error-container'}`}
-        >
-          <Icon name={error.code === 'EXPIRED' ? 'event_busy' : inactive ? 'block' : 'error'} className="!text-[18px]" fill />
-          <span>{withSupportLink(error.message)}</span>
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-primary-container text-label-lg text-white shadow-[0_10px_22px_rgba(255,94,0,0.28)] transition hover:-translate-y-px hover:bg-[#e65100] disabled:opacity-70"
-      >
-        {busy ? (
+      <button ref={button} type="submit" disabled={busy} className="love-btn">
+        {welcome ? (
+          'Welcome back!'
+        ) : busy ? (
           <>
-            <Spinner className="h-4 w-4" /> Signing in…
+            <Spinner className="h-5 w-5" /> Signing in…
           </>
         ) : (
-          'Sign in'
+          <>
+            <span className="love-hrt">♥</span> Sign in
+          </>
         )}
       </button>
 
-      <p className="mt-4 text-center text-body-md text-secondary">
-        Forgot your password? Contact <SupportLink />
+      <div className="love-sep">♥</div>
+      <p className="text-center text-body-md text-secondary">
+        Need help? <SupportLink />
       </p>
-
-      <div className="mt-5 flex items-start gap-2.5 border-t border-surface-container-high pt-4 text-body-md text-secondary">
-        <Icon name="verified_user" className="!text-[18px] text-emerald-600" fill />
-        <p>
-          <b className="text-navy">Your photos stay on your device.</b> They are never uploaded or saved.
-        </p>
-      </div>
     </form>
   );
 }

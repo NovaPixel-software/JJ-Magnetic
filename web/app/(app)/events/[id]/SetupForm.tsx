@@ -1,26 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Dropdown from '@/components/Dropdown';
 import SheetPreview from '@/components/SheetPreview';
 import { Icon, Spinner } from '@/components/ui';
 import { ApiError, api } from '@/lib/api';
-import { getPaper, getProduct, getShape, getTemplate, PAPERS, PRODUCTS, shapesForProduct, cutText, sizeText, templatesFor, type Template } from '@/lib/catalog';
+import { cutText, DEFAULT_PRODUCT_ID, getShape, getTemplate, offeredShapes, paperOptionsFor, sizeText, templatesForShape, type Paper, type Template } from '@/lib/catalog';
 import { computeLayout } from '@/lib/layout';
 import type { PublicEvent } from '@/lib/server/events';
-
-const field =
-  'h-11 w-full appearance-none rounded-lg border border-surface-container-high bg-surface-container-low px-4 pr-11 text-body-lg text-navy outline-none transition focus:border-tertiary-container focus:ring-[3px] focus:ring-tertiary-container/20';
-
-function Select({ id, value, onChange, children, icon = 'expand_more' }: { id: string; value: string; onChange: (v: string) => void; children: React.ReactNode; icon?: string }) {
-  return (
-    <div className="relative">
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={field}>
-        {children}
-      </select>
-      <Icon name={icon} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-secondary" />
-    </div>
-  );
-}
 
 const Label = ({ n, children, htmlFor }: { n: number; children: React.ReactNode; htmlFor: string }) => (
   <label htmlFor={htmlFor} className="mb-1.5 block text-label-lg text-navy">
@@ -28,39 +15,41 @@ const Label = ({ n, children, htmlFor }: { n: number; children: React.ReactNode;
   </label>
 );
 
-// A new event starts on the first product, its first shape (Round) and that shape's first size.
-const DEFAULT_PRODUCT = PRODUCTS[0].id;
-const DEFAULT_SHAPE = shapesForProduct(DEFAULT_PRODUCT)[0].id;
-const DEFAULT_TEMPLATE = templatesFor(DEFAULT_PRODUCT, DEFAULT_SHAPE)[0].id;
+// A new event starts on the first shape (Round) and that shape's first size and paper.
+const SHAPES = offeredShapes();
+const DEFAULT_SHAPE = SHAPES[0].id;
+const DEFAULT_TEMPLATE = templatesForShape(DEFAULT_SHAPE)[0].id;
+const DEFAULT_PAPER = paperOptionsFor(DEFAULT_SHAPE)[0].id;
 
 export default function SetupForm({ event, onSaved, onCancel }: { event: PublicEvent; onSaved: (e: PublicEvent) => void; onCancel?: () => void }) {
-  const first = event.setup;
-  const [productId, setProductId] = useState(first?.productId ?? DEFAULT_PRODUCT);
+  // An event set up before these choices existed may point at something no longer offered. It starts from the defaults then.
+  const s0 = event.setup;
+  const first =
+    s0 &&
+    SHAPES.some((s) => s.id === s0.shapeId) &&
+    templatesForShape(s0.shapeId).some((t) => t.id === s0.templateId) &&
+    paperOptionsFor(s0.shapeId).some((p) => p.id === s0.paperId)
+      ? s0
+      : null;
   const [shapeId, setShapeId] = useState(first?.shapeId ?? DEFAULT_SHAPE);
   const [templateId, setTemplateId] = useState(first?.templateId ?? DEFAULT_TEMPLATE);
-  const [paperId, setPaperId] = useState(first?.paperId ?? 'a4');
+  const [paperId, setPaperId] = useState(first?.paperId ?? DEFAULT_PAPER);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const shapes = useMemo(() => shapesForProduct(productId), [productId]);
-  const templates = useMemo(() => templatesFor(productId, shapeId), [productId, shapeId]);
-  const paper = getPaper(paperId)!;
+  const templates = useMemo(() => templatesForShape(shapeId), [shapeId]);
+  const papers = useMemo(() => paperOptionsFor(shapeId), [shapeId]);
+  const paper = papers.find((p) => p.id === paperId) ?? papers[0]; // the choice that is on screen, even right after the list changed
   const template = getTemplate(templateId)!;
   const shape = getShape(shapeId)!;
 
   const layout = useMemo(() => computeLayout(paper, 'portrait', template), [paper, template]);
-  const yieldFor = (t: Template) => computeLayout(paper, 'portrait', t).count;
+  const yieldFor = (t: Template, p: Paper = paper) => computeLayout(p, 'portrait', t).count;
   const fits = layout.count > 0;
 
-  const pickProduct = (id: string) => {
-    const s = shapesForProduct(id)[0];
-    setProductId(id);
-    setShapeId(s.id);
-    setTemplateId(templatesFor(id, s.id)[0].id);
-  };
   const pickShape = (id: string) => {
     setShapeId(id);
-    setTemplateId(templatesFor(productId, id)[0].id);
+    setTemplateId(templatesForShape(id)[0].id);
   };
 
   const save = async () => {
@@ -68,7 +57,7 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
     setBusy(true);
     setError('');
     try {
-      const { event: updated } = await api.setupEvent(event.id, { productId, shapeId, templateId, paperId });
+      const { event: updated } = await api.setupEvent(event.id, { productId: DEFAULT_PRODUCT_ID, shapeId, templateId, paperId: paper.id });
       onSaved(updated);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the server.');
@@ -83,49 +72,21 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
         <p className="mt-1 text-body-lg text-secondary">Choose what you are printing. Then you can add photos.</p>
 
         <div className="mt-space-lg space-y-space-md">
-          <div className="grid gap-space-md sm:grid-cols-2">
+          <div>
             <div>
-              <Label n={1} htmlFor="product">Product Type</Label>
-              <Select id="product" value={productId} onChange={pickProduct}>
-                {PRODUCTS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label n={2} htmlFor="shape">Photo Shape</Label>
-              <Select id="shape" value={shapeId} onChange={pickShape} icon={shape.icon}>
-                {shapes.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </Select>
+              <Label n={1} htmlFor="shape">Photo Shape</Label>
+              <Dropdown id="shape" value={shapeId} onChange={pickShape} icon={shape.icon} options={SHAPES.map((s) => ({ value: s.id, label: s.label }))} />
             </div>
           </div>
 
           <div>
-            <Label n={3} htmlFor="template">Template / Overlay Size</Label>
-            <Select id="template" value={templateId} onChange={setTemplateId}>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label} · {yieldFor(t)} per sheet
-                </option>
-              ))}
-            </Select>
+            <Label n={2} htmlFor="template">Template / Overlay Size</Label>
+            <Dropdown id="template" value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${t.label} · ${yieldFor(t)} per sheet` }))} />
           </div>
 
           <div>
-            <Label n={4} htmlFor="paper">Paper Size</Label>
-            <Select id="paper" value={paperId} onChange={setPaperId}>
-              {PAPERS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label} · {Math.round((p.wmm * 300) / 25.4)} × {Math.round((p.hmm * 300) / 25.4)} px
-                </option>
-              ))}
-            </Select>
+            <Label n={3} htmlFor="paper">Paper Size</Label>
+            <Dropdown id="paper" value={paper.id} onChange={setPaperId} options={papers.map((p) => ({ value: p.id, label: `${p.label} · ${yieldFor(template, p)} per sheet` }))} />
           </div>
 
           <div className={`flex items-center gap-3 rounded-xl p-space-md ${fits ? 'bg-surface-container-low' : 'border border-error-container bg-error-container/40'}`}>
@@ -160,7 +121,7 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
           <button
             onClick={save}
             disabled={busy || !fits}
-            className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary-container px-6 text-label-lg text-white shadow-lg shadow-primary-container/30 transition hover:bg-[#e65100] active:bg-[#cc4800] disabled:opacity-50"
+            className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary-container px-6 text-label-lg text-white shadow-lg shadow-primary-container/30 transition hover:bg-[#b3205a] active:bg-[#8f1d3f] disabled:opacity-50"
           >
             {busy && <Spinner className="h-4 w-4" />} {first ? 'Save setup' : 'Save & continue to photos'} {!busy && <Icon name="arrow_forward" />}
           </button>
@@ -183,7 +144,7 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
           </p>
         </div>
         <p className="mt-space-md text-body-md text-secondary">
-          {getProduct(productId)?.label} · {shape.label.replace(/ \(.*\)/, '')} · {sizeText(template)}
+          {shape.label.replace(/ \(.*\)/, '')} · {sizeText(template)}
         </p>
       </aside>
     </div>

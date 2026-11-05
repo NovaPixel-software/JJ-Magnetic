@@ -25,6 +25,9 @@ export function getDb(): Promise<Db> {
       await Promise.all([
         db.collection('users').createIndex({ email: 1 }, { unique: true }),
         db.collection('events').createIndex({ ownerId: 1, createdAt: -1 }),
+        // the activity log (one record per download or print): by owner and date for the date ranges, by event for its history
+        db.collection('activity').createIndex({ ownerId: 1, createdAt: -1 }),
+        db.collection('activity').createIndex({ eventId: 1, createdAt: -1 }),
       ]);
       return db;
     })().catch((e) => {

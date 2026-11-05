@@ -3,8 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import ChangePasswordForm from '@/components/ChangePasswordForm';
+import Dropdown from '@/components/Dropdown';
 import ProfileMenu from '@/components/ProfileMenu';
-import { Icon, Initials, Logo, Spinner } from '@/components/ui';
+import { BrandBar, Icon, Initials, Spinner } from '@/components/ui';
 import { ApiError, api, type PublicUser } from '@/lib/api';
 
 type State = 'active' | 'inactive' | 'expired';
@@ -106,7 +107,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
     <div className="min-h-screen bg-surface">
       <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-surface-container-high bg-surface-container-lowest/95 px-gutter-mobile py-3 backdrop-blur md:px-margin">
         <div className="flex min-w-0 items-center gap-3">
-          <Logo className="h-10 shrink-0" />
+          <BrandBar className="shrink-0" />
           <span className="shrink-0 rounded border border-primary-container/50 bg-primary-container/10 px-2 py-0.5 text-label-sm text-primary-container">ADMIN</span>
         </div>
         <ProfileMenu
@@ -129,7 +130,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
           </div>
           <button
             onClick={() => setDialog('add')}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white shadow-lg shadow-primary-container/30 hover:bg-[#e65100] sm:w-auto"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white shadow-lg shadow-primary-container/30 hover:bg-[#b3205a] sm:w-auto"
           >
             <Icon name="person_add" className="!text-[20px]" /> Add user
           </button>
@@ -369,7 +370,7 @@ function StatusButton({ on, busy, onClick, className = '' }: { on: boolean; busy
     <button
       disabled={busy}
       onClick={onClick}
-      className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-label-md disabled:opacity-60 ${on ? 'bg-surface-container text-navy hover:bg-surface-container-high' : 'bg-primary-container text-white hover:bg-[#e65100]'} ${className}`}
+      className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-label-md disabled:opacity-60 ${on ? 'bg-surface-container text-navy hover:bg-surface-container-high' : 'bg-primary-container text-white hover:bg-[#b3205a]'} ${className}`}
     >
       {busy ? <Spinner className="h-4 w-4" /> : <Icon name={on ? 'block' : 'check_circle'} className="!text-[16px]" />}
       {on ? 'Make inactive' : 'Make active'}
@@ -457,7 +458,7 @@ function Actions({ busy, onClose, label }: { busy: boolean; onClose: () => void;
       <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-label-lg text-secondary hover:bg-surface-container">
         Cancel
       </button>
-      <button disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white hover:bg-[#e65100] disabled:opacity-60">
+      <button disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-primary-container px-5 text-label-lg text-white hover:bg-[#b3205a] disabled:opacity-60">
         {busy && <Spinner className="h-4 w-4" />} {label}
       </button>
     </div>
@@ -565,13 +566,18 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
           <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         <ExpiryField value={expiresAt} onChange={setExpiresAt} from={from} />
-        <label className="block">
+        <div className="block">
           <span className="mb-1 block text-label-lg text-navy">Status</span>
-          <select className={inputClass} value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'inactive')}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive (cannot sign in)</option>
-          </select>
-        </label>
+          <Dropdown
+            value={status}
+            onChange={setStatus}
+            label="Status"
+            options={[
+              { value: 'active' as const, label: 'Active' },
+              { value: 'inactive' as const, label: 'Inactive (cannot sign in)' },
+            ]}
+          />
+        </div>
         <PasswordField label="New password (optional)" value={password} onChange={setPassword} optional />
         <ErrorNote text={error} />
         <Actions busy={busy} onClose={onClose} label="Save changes" />

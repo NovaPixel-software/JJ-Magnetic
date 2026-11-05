@@ -3,7 +3,7 @@ import { DPI, PX_PER_MM, type Rect, type SheetLayout } from './layout';
 import { drawLabel, ensureLabelFonts, preloadFrames } from './labels';
 import type { Photo } from './types';
 
-const BRAND = '#ff5e00';
+const BRAND = '#d6336c';
 
 /* ---------- Geometry ---------- */
 
@@ -315,7 +315,7 @@ export function drawSheet(
 
     if (ui && !p) {
       path(ctx, s, clip);
-      ctx.fillStyle = '#eff4ff';
+      ctx.fillStyle = '#fff0f4';
       ctx.fill();
       ctx.setLineDash([2, 1.4]);
       ctx.lineWidth = 0.5;
@@ -323,13 +323,13 @@ export function drawSheet(
       ctx.stroke();
       ctx.setLineDash([]);
       const u = Math.min(s.w, s.h);
-      ctx.fillStyle = '#8f7065';
+      ctx.fillStyle = '#9a7076';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `600 ${u * 0.13}px Inter, system-ui, sans-serif`;
       ctx.fillText(`Slot ${String(i + 1).padStart(2, '0')}`, s.x + s.w / 2, s.y + s.h / 2 + u * 0.12);
       ctx.font = `500 ${u * 0.3}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = '#009dd9';
+      ctx.fillStyle = '#d6336c';
       ctx.fillText('+', s.x + s.w / 2, s.y + s.h / 2 - u * 0.1);
     } else if (!layout.cuts && !layout.plain) {
       // faint cut outline for alignment

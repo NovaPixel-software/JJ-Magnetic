@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/ui';
-import { getProduct, sizeText } from '@/lib/catalog';
+import { sizeText } from '@/lib/catalog';
 import { isConfigured, resolveSetup } from '@/lib/event';
 import type { PublicEvent } from '@/lib/server/events';
 import Editor from './Editor';
@@ -17,6 +17,8 @@ export default function EventWorkspace({ initial }: { initial: PublicEvent }) {
   const [tab, setTab] = useState<Tab>(isConfigured(initial) ? 'photos' : 'setup');
   // Changing the setup changes the sheet, so the editor starts again with an empty sheet.
   const [sheetKey, setSheetKey] = useState(0);
+  // where the editor draws its Reset Sheet button, in this header. It only exists while the Photos tab is open.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
 
   // The Photos tab fits the window on a large screen, so the page behind it must not scroll. The Setup form is long, it can.
   const locked = tab === 'photos' && isConfigured(event);
@@ -30,7 +32,7 @@ export default function EventWorkspace({ initial }: { initial: PublicEvent }) {
     ? (() => {
         const { template, layout } = resolveSetup(event.setup);
         const size = sizeText(template);
-        return `${getProduct(event.setup.productId)?.label} · ${size} · ${layout.count} per sheet`;
+        return `${size} · ${layout.count} per sheet`;
       })()
     : 'Setup not finished';
 
@@ -55,10 +57,7 @@ export default function EventWorkspace({ initial }: { initial: PublicEvent }) {
             </TabButton>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip icon="download" label="Downloads" value={event.downloads} />
-          <Chip icon="print" label="Prints" value={event.prints} />
-        </div>
+        {isConfigured(event) && tab === 'photos' && <div ref={setHeaderSlot} className="flex" />}
       </header>
 
       {(tab === 'setup' || !isConfigured(event)) && (
@@ -76,18 +75,10 @@ export default function EventWorkspace({ initial }: { initial: PublicEvent }) {
       {/* Kept mounted (just hidden) while the Setup tab is open, so the photos on the sheet are not lost. */}
       {isConfigured(event) && (
         <div hidden={tab !== 'photos'}>
-          <Editor key={sheetKey} event={event} onEvent={setEvent} />
+          <Editor key={sheetKey} event={event} onEvent={setEvent} headerSlot={tab === 'photos' ? headerSlot : null} />
         </div>
       )}
     </div>
-  );
-}
-
-function Chip({ icon, label, value }: { icon: string; label: string; value: number }) {
-  return (
-    <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-label-md">
-      <Icon name={icon} className="!text-[18px] text-tertiary-container" /> {value} {label}
-    </span>
   );
 }
 

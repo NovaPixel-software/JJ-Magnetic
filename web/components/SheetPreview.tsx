@@ -8,7 +8,7 @@ export default function SheetPreview({ layout, clip, className = '' }: { layout:
   return (
     <svg viewBox={`0 0 ${pageW} ${pageH}`} className={`h-auto w-full rounded bg-white shadow-md ${className}`} role="img" aria-label="Sheet preview">
       {slots.map((s, i) => {
-        const common = { fill: '#eff4ff', stroke: '#9fb4d6', strokeWidth: 0.35, strokeDasharray: '1.4 1' };
+        const common = { fill: '#fff0f4', stroke: '#e0b3b6', strokeWidth: 0.35, strokeDasharray: '1.4 1' };
         const cut = cuts?.[i];
         const cutLine = { fill: 'none', stroke: '#475569', strokeWidth: 0.3 };
         return (
@@ -24,7 +24,7 @@ export default function SheetPreview({ layout, clip, className = '' }: { layout:
             ) : (
               <rect x={s.x} y={s.y} width={s.w} height={s.h} rx={clip === 'rounded' ? u * 0.12 : 0} {...common} />
             )}
-            <text x={s.x + s.w / 2} y={s.y + s.h / 2 - u * 0.04} textAnchor="middle" fontSize={u * 0.2} fontWeight={700} fill="#0a1931">
+            <text x={s.x + s.w / 2} y={s.y + s.h / 2 - u * 0.04} textAnchor="middle" fontSize={u * 0.2} fontWeight={700} fill="#14263d">
               {String(i + 1).padStart(2, '0')}
             </text>
             <text x={s.x + s.w / 2} y={s.y + s.h / 2 + u * 0.14} textAnchor="middle" fontSize={u * 0.1} fill="#64748b">

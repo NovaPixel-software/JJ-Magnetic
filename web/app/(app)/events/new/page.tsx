@@ -62,7 +62,7 @@ export default function NewEventPage() {
 
         <button
           disabled={busy}
-          className="mt-space-lg flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-container text-label-lg text-white shadow-lg shadow-primary-container/30 transition hover:bg-[#e65100] active:bg-[#cc4800] disabled:opacity-60"
+          className="mt-space-lg flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-container text-label-lg text-white shadow-lg shadow-primary-container/30 transition hover:bg-[#b3205a] active:bg-[#8f1d3f] disabled:opacity-60"
         >
           {busy ? <Spinner /> : null} Create Event {!busy && <Icon name="arrow_forward" />}
         </button>

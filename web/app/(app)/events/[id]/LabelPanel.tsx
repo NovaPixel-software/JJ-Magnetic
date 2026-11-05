@@ -20,7 +20,8 @@ export default function LabelPanel({
   label,
   hasPhoto,
   slotNo,
-  onApplyNameToAll,
+  sameName,
+  onSameNameChange,
   applyAll,
   onApplyAllChange,
   onChange,
@@ -28,7 +29,8 @@ export default function LabelPanel({
   label: NameLabel | null | undefined;
   hasPhoto: boolean;
   slotNo: number;
-  onApplyNameToAll: () => void;
+  sameName: boolean;
+  onSameNameChange: (on: boolean) => void;
   applyAll: boolean;
   onApplyAllChange: (on: boolean) => void;
   onChange: (change: Partial<NameLabel>) => void;
@@ -56,14 +58,13 @@ export default function LabelPanel({
             </span>
             <input className={input} value={l.text} maxLength={MAX_LABEL_CHARS} onChange={(e) => onChange({ text: e.target.value })} placeholder="e.g. Johnathan" />
           </label>
-          <button
-            type="button"
-            onClick={onApplyNameToAll}
-            disabled={!l.text.trim()}
-            className="-mt-2 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-surface-container text-label-md text-navy hover:bg-surface-container-high disabled:opacity-40"
-          >
-            <Icon name="content_copy" className="!text-[16px]" /> Use this name on all photos
-          </button>
+          <label className="-mt-2 flex cursor-pointer items-start gap-3 rounded-lg bg-surface-container px-3 py-2.5">
+            <input type="checkbox" checked={sameName} onChange={(e) => onSameNameChange(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#d6336c]" />
+            <span className="text-label-lg text-navy">
+              Same name on all photos
+              <span className="block text-body-sm font-normal text-secondary">Writes this name on every photo, including ones you add later</span>
+            </span>
+          </label>
 
           <Dropdown
             label="Design"
@@ -159,7 +160,7 @@ export default function LabelPanel({
           </label>
 
           <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-surface-container px-3 py-2.5">
-            <input type="checkbox" checked={applyAll} onChange={(e) => onApplyAllChange(e.target.checked)} className="h-4 w-4 accent-[#ff5e00]" />
+            <input type="checkbox" checked={applyAll} onChange={(e) => onApplyAllChange(e.target.checked)} className="h-4 w-4 accent-[#d6336c]" />
             <span className="text-label-lg text-navy">Apply this design to all photos</span>
           </label>
           <div className="grid grid-cols-1 gap-2">

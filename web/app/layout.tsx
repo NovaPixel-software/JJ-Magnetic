@@ -12,12 +12,12 @@ const hand = Caveat({ subsets: ['latin'], variable: '--font-hand', display: 'swa
 const round = Fredoka({ subsets: ['latin'], variable: '--font-round', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: 'PrintPix Event Engine',
-  description: 'Fridge magnet and photo sheet layout and printing for live events.',
+  title: 'JJ Magnetic Memories',
+  description: 'Personalized magnets and photo sheets, laid out and printed for live events.',
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0a1931',
+  themeColor: '#14263d',
   width: 'device-width',
   initialScale: 1,
 };

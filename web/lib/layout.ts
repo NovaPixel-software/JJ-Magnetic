@@ -51,11 +51,14 @@ export function computeLayout(paper: Paper, orientation: Orientation, template: 
   const fit = (avail: number, size: number, gap: number) => Math.max(0, Math.floor((avail + gap) / (size + gap) + 1e-9));
   const cols = fit(pageW - 2 * margin, cellW, gapX);
   // with a fixed top margin the rows start there and only the bottom margin is shared out; otherwise they are centred
-  const rows = fit(template.topMm != null ? pageH - template.topMm - margin : pageH - 2 * margin, cellH, gapY);
+  let rows = fit(template.topMm != null ? pageH - template.topMm - margin : pageH - 2 * margin, cellH, gapY);
+  // A paper that caps the count (9 per sheet) drops whole rows, and the block is then centred on the sheet.
+  const capped = !!paper.maxCount && cols > 0 && cols * rows > paper.maxCount;
+  if (capped) rows = Math.max(1, Math.floor(paper.maxCount! / cols));
   const totalW = cols * cellW + Math.max(0, cols - 1) * gapX;
   const totalH = rows * cellH + Math.max(0, rows - 1) * gapY;
   const x0 = (pageW - totalW) / 2;
-  const y0 = template.topMm ?? (pageH - totalH) / 2;
+  const y0 = capped ? (pageH - totalH) / 2 : (template.topMm ?? (pageH - totalH) / 2);
   const slots: Rect[] = [];
   const cuts: Rect[] = [];
   for (let r = 0; r < rows; r++) {
