@@ -26,7 +26,7 @@ export const api = {
   createEvent: (name: string) => call<{ event: PublicEvent }>('/api/events', post({ name })),
   setupEvent: (id: string, setup: EventSetup) =>
     call<{ event: PublicEvent }>(`/api/events/${id}`, { method: 'PATCH', body: JSON.stringify(setup) }),
-  countEvent: (id: string, kind: 'download' | 'print', detail?: { format?: 'jpeg' | 'pdf'; dpi?: number; photos?: number }) =>
+  countEvent: (id: string, kind: 'download' | 'print', detail?: { format?: 'jpeg' | 'pdf' | 'png'; dpi?: number; photos?: number }) =>
     call<{ event: PublicEvent }>(`/api/events/${id}/count`, post({ kind, ...detail })),
   users: () => call<{ users: PublicUser[] }>('/api/admin/users'),
   createUser: (body: { name: string; email: string; password: string; expiresAt?: string }) => call<{ user: PublicUser }>('/api/admin/users', post(body)),

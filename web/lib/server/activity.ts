@@ -16,7 +16,7 @@ export interface ActivityRecord {
   /** The event's name when this happened. */
   eventName: string;
   kind: ActivityKind;
-  format: 'jpeg' | 'pdf' | null;
+  format: 'jpeg' | 'pdf' | 'png' | null;
   dpi: number | null;
   /** How many photos were on the sheet. */
   photos: number | null;

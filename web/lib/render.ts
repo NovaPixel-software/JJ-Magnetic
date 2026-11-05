@@ -198,6 +198,18 @@ export function releaseExactCopies() {
   exactCache = new WeakMap();
 }
 
+/** Frees the exact copies of one photo. */
+export function releaseExactCopiesFor(bmp: ImageBitmap) {
+  const byWidth = exactCache.get(bmp);
+  if (!byWidth) return;
+  for (const c of byWidth.values()) {
+    c.width = c.height = 0;
+    const i = exactCanvases.indexOf(c);
+    if (i >= 0) exactCanvases.splice(i, 1);
+  }
+  exactCache.delete(bmp);
+}
+
 function exactCopy(bmp: ImageBitmap, deviceScale: number): HTMLCanvasElement {
   const dw = Math.max(1, Math.round(bmp.width * deviceScale));
   let byWidth = exactCache.get(bmp);
@@ -301,15 +313,21 @@ export function drawSheet(
   slots: (Photo | null)[],
   pxPerMm: number,
   ui?: DrawUi,
+  /** Only draw the part of the sheet between y0 and y1 (mm), onto a canvas that is just that tall. For very large sheets made in strips. */
+  band?: { y0: number; y1: number },
 ) {
   const ctx = canvas.getContext('2d')!;
-  ctx.setTransform(pxPerMm, 0, 0, pxPerMm, 0, 0);
+  ctx.setTransform(pxPerMm, 0, 0, pxPerMm, 0, -(band?.y0 ?? 0) * pxPerMm);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, layout.pageW, layout.pageH);
 
   layout.slots.forEach((s, i) => {
+    if (band) {
+      const r = layout.cuts?.[i] ?? s; // a piece that is wholly above or below this strip has nothing to draw here
+      if (r.y + r.h < band.y0 - 1 || r.y > band.y1 + 1) return;
+    }
     const p = slots[i];
     if (p) drawPhoto(ctx, p, s, clip, pxPerMm, !ui); // no editor overlay means this is the real sheet
 
@@ -419,6 +437,23 @@ async function jpegWithDpi(blob: Blob, dpi: number): Promise<Blob> {
   return new Blob([src], { type: 'image/jpeg' });
 }
 
+/**
+ * The most pixels a canvas is trusted with. Above what a phone can really hold, the browser does not fail: it hands
+ * back a canvas full of noise, and that is what gets saved. A phone is held to 16 million pixels (an A4 sheet at 300 DPI
+ * is 8.7 million), a computer to 120 million.
+ */
+const PHONE_MAX_PX = 16_000_000;
+const COMPUTER_MAX_PX = 120_000_000;
+
+/** True on a phone or tablet (the main pointer is a finger). */
+export const isTouchDevice = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+/** The scale a sheet can really be made at: what was asked for, brought down if it would be too big for this device. */
+export function exportScale(layout: SheetLayout, wanted: number, touch = isTouchDevice()): number {
+  const limit = Math.sqrt((touch ? PHONE_MAX_PX : COMPUTER_MAX_PX) / (layout.pxW * layout.pxH));
+  return Math.max(0.5, Math.min(wanted, limit));
+}
+
 export type SheetFormat = 'png' | 'jpeg' | 'pdf';
 
 /** A one page PDF, as big as the paper, with the JPEG as it is (no second compression) filling the page. No library needed. */
@@ -459,7 +494,8 @@ async function pdfFromJpeg(jpeg: Blob, pxW: number, pxH: number, pageWmm: number
  * Print-ready PNG at 300 DPI, with the 300 dpi written into the file. `scale` below 1 makes a smaller sheet (and says so in
  * the dpi), for phones that cannot hold a full size canvas in memory.
  */
-export async function exportPng(layout: SheetLayout, clip: ClipKind, slots: (Photo | null)[], scale = 1, format: SheetFormat = 'png'): Promise<Blob> {
+export async function exportPng(layout: SheetLayout, clip: ClipKind, slots: (Photo | null)[], wanted = 1, format: SheetFormat = 'png'): Promise<Blob> {
+  const scale = exportScale(layout, wanted); // never more than this device can hold
   await ensureLabelFonts(slots.map((p) => p?.label)); // labels should be drawn in their real fonts, not a fallback
   await preloadFrames(slots.map((p) => p?.label?.frame)); // and overlay designs must be in
   const c = canvasOf(Math.round(layout.pxW * scale), Math.round(layout.pxH * scale));
@@ -472,6 +508,183 @@ export async function exportPng(layout: SheetLayout, clip: ClipKind, slots: (Pho
     return format === 'pdf' ? await pdfFromJpeg(jpeg, c.width, c.height, layout.pageW, layout.pageH) : jpeg;
   } finally {
     c.width = c.height = 0;
+    releaseExactCopies();
+  }
+}
+
+/* ---------- Large sheets made in strips ---------- */
+
+/*
+ * One canvas for a 600 DPI A4 sheet (35 million pixels) is more than a phone can hold: the browser hands back noise.
+ * So the sheet is made a strip at a time. Each strip is a small canvas, drawn, encoded and thrown away, and the strips
+ * are joined into one file: a PDF with one picture per strip, or a PNG written row by row through the browser's own
+ * deflate. Only a strip is ever in memory, not the whole sheet.
+ */
+const STRIP_PX = 4_000_000; // pixels in one strip
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + data.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+/** The rows of an RGBA picture as PNG scanlines: filter byte 1 (Sub, each pixel minus the one to its left), then R, G, B. */
+export function subFilterRows(px: Uint8ClampedArray, W: number, h: number): Uint8Array {
+  const rowLen = 1 + 3 * W;
+  const out = new Uint8Array(rowLen * h);
+  for (let r = 0; r < h; r++) {
+    const o = r * rowLen;
+    out[o] = 1;
+    for (let x = 0; x < W; x++) {
+      const p = (r * W + x) * 4;
+      const q = p - 4;
+      const t = o + 1 + x * 3;
+      out[t] = px[p] - (x ? px[q] : 0);
+      out[t + 1] = px[p + 1] - (x ? px[q + 1] : 0);
+      out[t + 2] = px[p + 2] - (x ? px[q + 2] : 0);
+    }
+  }
+  return out;
+}
+
+/** A PNG file from the pieces of one deflate stream of filtered scanlines (see subFilterRows). */
+export function assemblePng(W: number, H: number, dpi: number, packed: Uint8Array[]): Blob {
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, W);
+  dv.setUint32(4, H);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8 bits, colour type 2 (RGB), standard compression, filtering and no interlace
+  const perMetre = Math.round((dpi / 25.4) * 1000);
+  const phys = new Uint8Array(9);
+  const pv = new DataView(phys.buffer);
+  pv.setUint32(0, perMetre);
+  pv.setUint32(4, perMetre);
+  phys[8] = 1;
+  const parts: Uint8Array[] = [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk('IHDR', ihdr), pngChunk('pHYs', phys)];
+  for (const piece of packed) parts.push(pngChunk('IDAT', piece));
+  parts.push(pngChunk('IEND', new Uint8Array(0)));
+  return new Blob(parts as BlobPart[], { type: 'image/png' });
+}
+
+/** A PDF page as big as the paper with one JPEG strip after another down it. A strip reaches 2 px into the next, so no hairline shows between them. */
+export async function pdfFromStrips(strips: { jpeg: Uint8Array; w: number; h: number; y: number }[], totalH: number, pageWmm: number, pageHmm: number): Promise<Blob> {
+  const pt = (mm: number) => (mm * 72) / 25.4;
+  const pageW = pt(pageWmm);
+  const pageH = pt(pageHmm);
+  const enc = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let size = 0;
+  const push = (b: Uint8Array | string) => {
+    const u = typeof b === 'string' ? enc.encode(b) : b;
+    parts.push(u);
+    size += u.length;
+  };
+  const obj = (n: number, body: string) => {
+    offsets[n] = size;
+    push(n + ' 0 obj\n' + body + '\nendobj\n');
+  };
+  const n = strips.length;
+  const contentId = 4 + n;
+  push('%PDF-1.4\n');
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  const names = strips.map((_, i) => '/Im' + i + ' ' + (4 + i) + ' 0 R').join(' ');
+  obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageW.toFixed(2) + ' ' + pageH.toFixed(2) + '] /Resources << /XObject << ' + names + ' >> >> /Contents ' + contentId + ' 0 R >>');
+  strips.forEach((s, i) => {
+    offsets[4 + i] = size;
+    push((4 + i) + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + s.w + ' /Height ' + s.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + s.jpeg.length + ' >>\nstream\n');
+    push(s.jpeg);
+    push('\nendstream\nendobj\n');
+  });
+  const k = pageH / totalH; // points per pixel
+  const content = strips.map((s, i) => 'q ' + pageW.toFixed(2) + ' 0 0 ' + (s.h * k).toFixed(3) + ' 0 ' + (pageH - (s.y + s.h) * k).toFixed(3) + ' cm /Im' + i + ' Do Q').join('\n');
+  obj(contentId, '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+  const xref = size;
+  let x = 'xref\n0 ' + (contentId + 1) + '\n0000000000 65535 f \n';
+  for (let i = 1; i <= contentId; i++) x += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  push(x + 'trailer\n<< /Size ' + (contentId + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF');
+  return new Blob(parts as BlobPart[], { type: 'application/pdf' });
+}
+
+/**
+ * The sheet at `scale` (2 = 600 DPI) as a PDF or a PNG, made a strip at a time so a phone can do it.
+ * `onProgress` is told how many strips are done.
+ */
+export async function exportTiled(
+  layout: SheetLayout,
+  clip: ClipKind,
+  slots: (Photo | null)[],
+  scale: number,
+  format: 'pdf' | 'png',
+  onProgress?: (done: number, total: number) => void,
+): Promise<Blob> {
+  if (format === 'png' && typeof CompressionStream === 'undefined') throw new Error('this browser cannot make a PNG this large, choose PDF');
+  await ensureLabelFonts(slots.map((p) => p?.label));
+  await preloadFrames(slots.map((p) => p?.label?.frame));
+
+  const pxPerMm = PX_PER_MM * scale;
+  const W = Math.round(layout.pxW * scale);
+  const H = Math.round(layout.pxH * scale);
+  const stripH = Math.max(64, Math.floor(STRIP_PX / W));
+  const total = Math.ceil(H / stripH);
+  const dpi = Math.round(DPI * scale);
+
+  // PNG: rows go through a deflate stream as they are made, and the compressed pieces are collected as they come out
+  let writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  const packed: Uint8Array[] = [];
+  let reading: Promise<void> = Promise.resolve();
+  if (format === 'png') {
+    const cs = new CompressionStream('deflate');
+    writer = cs.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
+    const reader = cs.readable.getReader();
+    reading = (async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        packed.push(value);
+      }
+    })();
+  }
+  const jpegs: { jpeg: Uint8Array; w: number; h: number; y: number }[] = [];
+
+  try {
+    for (let i = 0; i < total; i++) {
+      const y = i * stripH;
+      const h = Math.min(stripH, H - y);
+      const extra = format === 'pdf' && i < total - 1 ? 2 : 0;
+      const c = canvasOf(W, h + extra);
+      drawSheet(c, layout, clip, slots, pxPerMm, undefined, { y0: y / pxPerMm, y1: (y + h + extra) / pxPerMm });
+
+      if (format === 'pdf') {
+        const blob = await toBlob(c, 'image/jpeg', 0.98);
+        jpegs.push({ jpeg: new Uint8Array(await blob.arrayBuffer()), w: W, h: h + extra, y });
+      } else {
+        const px = c.getContext('2d')!.getImageData(0, 0, W, h).data;
+        await writer!.write(subFilterRows(px, W, h));
+      }
+      c.width = c.height = 0; // let go of the strip before the next one
+      onProgress?.(i + 1, total);
+
+      // photos whose pieces are all above the next strip are not needed any more
+      const nextY = (y + h) / pxPerMm;
+      slots.forEach((p, k) => {
+        const r = layout.cuts?.[k] ?? layout.slots[k];
+        if (p && r.y + r.h <= nextY) releaseExactCopiesFor(p.bmp);
+      });
+      await new Promise((r) => setTimeout(r, 0)); // let the browser breathe, and free memory, between strips
+    }
+
+    if (format === 'pdf') return await pdfFromStrips(jpegs, H, layout.pageW, layout.pageH);
+
+    await writer!.close();
+    await reading;
+    return assemblePng(W, H, dpi, packed);
+  } finally {
     releaseExactCopies();
   }
 }

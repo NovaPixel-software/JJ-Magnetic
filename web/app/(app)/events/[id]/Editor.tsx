@@ -7,7 +7,7 @@ import { Icon, Spinner } from '@/components/ui';
 import { resolveSetup, type ConfiguredEvent } from '@/lib/event';
 import { ApiError, api } from '@/lib/api';
 import { DEFAULT_LABEL, ensureLabelFonts, preloadFrames } from '@/lib/labels';
-import { clampPan, drawSheet, exportPng, hitSlot, importPhoto, MIN_ZOOM, type SheetFormat } from '@/lib/render';
+import { clampPan, drawSheet, exportPng, exportScale, exportTiled, hitSlot, importPhoto, isTouchDevice, MIN_ZOOM, type SheetFormat } from '@/lib/render';
 import type { PublicEvent } from '@/lib/server/events';
 import type { NameLabel, Photo, SlotData } from '@/lib/types';
 import LabelPanel from './LabelPanel';
@@ -15,6 +15,8 @@ import LabelPanel from './LabelPanel';
 const CANVAS_PX_PER_MM = 4.5;
 /** The high quality export: 700 DPI. */
 const HQ_SCALE = 700 / 300;
+/** A phone makes its high resolution PDF or PNG in strips, at 600 DPI. */
+const PHONE_HQ_SCALE = 2;
 const norm = (d: number) => {
   const r = ((((d + 180) % 360) + 360) % 360) - 180;
   return r === -180 ? 180 : r;
@@ -36,8 +38,20 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
   const [photos, setPhotos] = useState<(Photo | null)[]>(() => Array(layout.count).fill(null));
   const [selected, setSelected] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [format, setFormat] = useState<'jpeg' | 'pdf'>('jpeg');
-  const [maxQuality, setMaxQuality] = useState(true); // 700 DPI by default, untick for 300
+  const [format, setFormat] = useState<'jpeg' | 'pdf' | 'png'>('jpeg');
+  const [progress, setProgress] = useState('');
+  const [maxQuality, setMaxQuality] = useState(true); // 700 DPI by default on a computer, untick for 300
+  // A phone cannot hold a big sheet as one canvas (the picture comes out as noise). So on a phone a PDF or a PNG is made in
+  // strips at 600 DPI, and a JPEG, which cannot be joined from strips, is 300 DPI.
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    if (isTouchDevice()) {
+      setTouch(true);
+      setFormat('pdf');
+    }
+  }, []);
+  const tiled = touch && format !== 'jpeg' && maxQuality; // a phone making the big file in strips
+  const outScale = tiled ? PHONE_HQ_SCALE : exportScale(layout, touch ? 1 : maxQuality ? HQ_SCALE : 1, touch); // what the sheet is really made at
   const [banner, setBanner] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -299,9 +313,9 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
   };
 
   /* ---- output: each download or print adds one to the event's counter on the server ---- */
-  const count = async (kind: 'download' | 'print', fileType: 'jpeg' | 'pdf') => {
+  const count = async (kind: 'download' | 'print', fileType: 'jpeg' | 'pdf' | 'png') => {
     try {
-      const { event: updated } = await api.countEvent(event.id, kind, { format: fileType, dpi: Math.round(300 * (maxQuality ? HQ_SCALE : 1)), photos: photos.filter(Boolean).length });
+      const { event: updated } = await api.countEvent(event.id, kind, { format: fileType, dpi: Math.round(300 * outScale), photos: photos.filter(Boolean).length });
       onEvent(updated);
     } catch (e) {
       setBanner(e instanceof ApiError ? e.message : 'Could not update the count. Check your connection.');
@@ -310,12 +324,18 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
 
   /** The sheet, always at the full 300 DPI. It is never made smaller to fit: a lower quality print is worse than an error. */
   const makeSheet = async (as: SheetFormat = format) => {
+    const strips = touch && as !== 'jpeg' && maxQuality; // a phone's big PDF or PNG
+    const run = () =>
+      strips
+        ? exportTiled(layout, shape.clip, photos, PHONE_HQ_SCALE, as as 'pdf' | 'png', (d, t) => setProgress(d + ' of ' + t))
+        : exportPng(layout, shape.clip, photos, touch ? 1 : maxQuality ? HQ_SCALE : 1, as);
+    setProgress('');
     try {
-      return await exportPng(layout, shape.clip, photos, maxQuality ? HQ_SCALE : 1, as);
+      return await run();
     } catch (e) {
       console.error('Sheet export failed, trying once more', e);
       await new Promise((r) => setTimeout(r, 300)); // let the browser free the memory of the first try
-      return await exportPng(layout, shape.clip, photos, maxQuality ? HQ_SCALE : 1, as);
+      return await run();
     }
   };
 
@@ -337,9 +357,10 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     setJustDone(false);
     try {
       const blob = await makeSheet();
-      const name = `${event.name} - sheet ${event.downloads + 1}.${format === 'pdf' ? 'pdf' : 'jpg'}`;
+      const name = `${event.name} - sheet ${event.downloads + 1}.${format === 'pdf' ? 'pdf' : format === 'png' ? 'png' : 'jpg'}`;
+      const mime = format === 'pdf' ? 'application/pdf' : format === 'png' ? 'image/png' : 'image/jpeg';
       if (matchMedia('(pointer: coarse)').matches) {
-        setReady({ url: URL.createObjectURL(blob), name, file: new File([blob], name, { type: format === 'pdf' ? 'application/pdf' : 'image/jpeg' }) });
+        setReady({ url: URL.createObjectURL(blob), name, file: new File([blob], name, { type: mime }) });
       } else {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -455,7 +476,7 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
               />
               {busy && (
                 <div className="absolute inset-0 flex items-center justify-center rounded bg-navy/75 px-4 text-center">
-                  <LogoLoader size={84} onDark label={job ? 'Preparing your sheet… this can take a few seconds' : 'Preparing…'} />
+                  <LogoLoader size={84} onDark label={job ? 'Preparing your sheet… ' + (progress || 'this can take a few seconds') : 'Preparing…'} />
                 </div>
               )}
             </div>
@@ -532,14 +553,14 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
               <div className="space-y-3">
                 <div>
                   <p className="text-label-lg text-navy">
-                    Output · {Math.round(layout.pxW * (maxQuality ? HQ_SCALE : 1))} × {Math.round(layout.pxH * (maxQuality ? HQ_SCALE : 1))} px
+                    Output · {Math.round(layout.pxW * outScale)} × {Math.round(layout.pxH * outScale)} px
                   </p>
                   <p className="text-body-md text-secondary">
-                    {layout.pageW}×{layout.pageH} mm · {maxQuality ? '700' : '300'} DPI {format === 'pdf' ? 'PDF' : 'JPEG'}
+                    {layout.pageW}×{layout.pageH} mm · {Math.round(300 * outScale)} DPI {format === 'pdf' ? 'PDF' : format === 'png' ? 'PNG' : 'JPEG'}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2" role="group" aria-label="File type">
-                  {(['jpeg', 'pdf'] as const).map((f) => (
+                <div className="grid grid-cols-3 gap-2" role="group" aria-label="File type">
+                  {(['jpeg', 'pdf', 'png'] as const).map((f) => (
                     <button
                       key={f}
                       type="button"
@@ -547,15 +568,17 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
                       onClick={() => setFormat(f)}
                       className={`h-9 rounded-lg text-label-lg transition ${format === f ? 'bg-primary-container text-white shadow' : 'bg-surface-container text-navy hover:bg-surface-container-high'}`}
                     >
-                      {f === 'jpeg' ? 'JPEG' : 'PDF'}
+                      {f === 'jpeg' ? 'JPEG' : f === 'pdf' ? 'PDF' : 'PNG'}
                     </button>
                   ))}
                 </div>
                 <label className="flex cursor-pointer items-start gap-2.5 rounded-lg bg-surface-container px-3 py-2.5">
-                  <input type="checkbox" checked={maxQuality} onChange={(e) => setMaxQuality(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#d6336c]" />
+                  <input type="checkbox" checked={maxQuality} disabled={touch && format === 'jpeg'} onChange={(e) => setMaxQuality(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#d6336c]" />
                   <span className="text-body-md text-navy">
-                    Maximum quality · 700 DPI
-                    <span className="block text-body-sm text-secondary">Bigger file, needs a computer</span>
+                    {touch ? 'High resolution · 600 DPI' : 'Maximum quality · 700 DPI'}
+                    <span className="block text-body-sm text-secondary">
+                      {touch ? (format === 'jpeg' ? 'A JPEG on a phone is 300 DPI. Choose PDF or PNG for 600 DPI.' : 'Made in parts, so it takes a little longer. PNG files are big.') : 'Bigger file, needs a computer'}
+                    </span>
                   </span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">

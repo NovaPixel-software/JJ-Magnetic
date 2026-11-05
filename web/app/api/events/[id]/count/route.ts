@@ -30,7 +30,7 @@ export async function POST(req: Request, { params }: Ctx) {
         eventId: id,
         eventName: updated.name,
         kind: body.kind,
-        format: body.format === 'pdf' ? 'pdf' : body.format === 'jpeg' ? 'jpeg' : null,
+        format: body.format === 'pdf' ? 'pdf' : body.format === 'png' ? 'png' : body.format === 'jpeg' ? 'jpeg' : null,
         dpi: whole(body.dpi, 50, 2400),
         photos: whole(body.photos, 0, 500),
       })
