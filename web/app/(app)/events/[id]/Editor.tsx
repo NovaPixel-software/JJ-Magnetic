@@ -194,17 +194,51 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     return { x: ((e.clientX - r.left) / r.width) * layout.pageW, y: ((e.clientY - r.top) / r.height) * layout.pageH };
   };
 
+  // Fingers (or the mouse) that are on the sheet right now, and a two-finger pinch in progress.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ slot: number; dist: number; zoom: number } | null>(null);
+  const spread = () => {
+    const [a, b] = [...pointers.current.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    // A second finger turns the drag into a pinch that zooms the photo under the two fingers.
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      const r = canvasRef.current!.getBoundingClientRect();
+      const mx = (((a.x + b.x) / 2 - r.left) / r.width) * layout.pageW;
+      const my = (((a.y + b.y) / 2 - r.top) / r.height) * layout.pageH;
+      const hit = hitSlot(layout, shape.clip, mx, my);
+      const slot = hit >= 0 && photos[hit] ? hit : photos[selected] ? selected : -1;
+      drag.current = null; // two fingers do not move the photo
+      pinch.current = slot >= 0 ? { slot, dist: Math.max(1, spread()), zoom: photos[slot]!.zoom } : null;
+      if (slot >= 0) setSelected(slot);
+      return;
+    }
+    if (pointers.current.size > 2) return;
+
     const { x, y } = toMm(e);
     const i = hitSlot(layout, shape.clip, x, y);
     if (i < 0) return;
     setSelected(i);
     const p = photos[i];
     drag.current = { slot: i, x: e.clientX, y: e.clientY, ox: p?.ox ?? 0, oy: p?.oy ?? 0, moved: false };
-    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const pz = pinch.current;
+    if (pz && pointers.current.size >= 2) {
+      const zoom = Math.min(3, Math.max(MIN_ZOOM, pz.zoom * (spread() / pz.dist)));
+      patch(pz.slot, { zoom });
+      return;
+    }
+
     const d = drag.current;
     if (!d || !photos[d.slot]) return;
     const r = canvasRef.current!.getBoundingClientRect();
@@ -215,9 +249,11 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     patch(d.slot, { ox: d.ox + dx, oy: d.oy + dy });
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
     const d = drag.current;
-    drag.current = null;
+    drag.current = null; // the finger left over after a pinch does not start dragging
     if (d && !d.moved && !photos[d.slot]) pick(d.slot);
   };
 
