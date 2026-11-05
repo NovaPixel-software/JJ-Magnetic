@@ -91,5 +91,5 @@ class MongoActivityRepo implements ActivityRepo {
   }
 }
 
-const g = globalThis as unknown as { __printpixActivityV2?: ActivityRepo };
-export const activityRepo: ActivityRepo = (g.__printpixActivityV2 ??= mongoEnabled() ? new MongoActivityRepo() : new MemoryActivityRepo());
+const g = globalThis as unknown as { __jjActivityV2?: ActivityRepo };
+export const activityRepo: ActivityRepo = (g.__jjActivityV2 ??= mongoEnabled() ? new MongoActivityRepo() : new MemoryActivityRepo());

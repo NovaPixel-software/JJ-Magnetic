@@ -182,8 +182,8 @@ class MongoEventRepo implements EventRepo {
 
 // Kept on globalThis so Next.js dev reloads do not wipe the in-memory data.
 // The key changed with the schema so an old dev-server copy is not reused.
-const g = globalThis as unknown as { __printpixEventsV6?: EventRepo };
-export const eventRepo: EventRepo = (g.__printpixEventsV6 ??= mongoEnabled() ? new MongoEventRepo() : new MemoryEventRepo());
+const g = globalThis as unknown as { __jjEventsV6?: EventRepo };
+export const eventRepo: EventRepo = (g.__jjEventsV6 ??= mongoEnabled() ? new MongoEventRepo() : new MemoryEventRepo());
 
 /** What the browser is allowed to see. */
 export function publicEvent(e: EventRecord) {

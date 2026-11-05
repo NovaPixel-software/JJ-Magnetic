@@ -23,10 +23,14 @@ export interface UserRecord {
   expiresAt: string | null; // YYYY-MM-DD, the last day the account works. null = never (admins)
   passwordHash: string;
   createdAt: string;
+  /** The one device that is signed in (checked for users, not for admins). Signing in somewhere else replaces it. */
+  sessionId?: string | null;
+  /** The last time the person was seen using the app. A session with none for too long ends. */
+  lastSeenAt?: string | null;
 }
 
 export type NewUser = Pick<UserRecord, 'name' | 'email' | 'role' | 'status' | 'expiresAt'> & { password: string };
-export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'status' | 'lastLogin' | 'expiresAt'>> & { password?: string };
+export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'status' | 'lastLogin' | 'expiresAt' | 'sessionId' | 'lastSeenAt'>> & { password?: string };
 
 export interface UserRepo {
   list(): Promise<UserRecord[]>;
@@ -70,10 +74,10 @@ function seed(): UserRecord[] {
     createdAt: new Date().toISOString(),
   });
   return [
-    make('Sarah Jenkins', 'admin@printpix.io', 'admin', 'active', 'admin123', 0, null),
-    make('Marcus Vance', 'marcus@printpix.io', 'user', 'active', 'user12345', 2, addMonthsIso(todayIso(), 12)),
-    make('Elena Rostova', 'elena@printpix.io', 'user', 'active', 'user12345', 18, addMonthsIso(todayIso(), 1)),
-    make('David Kalu', 'david@printpix.io', 'user', 'inactive', 'user12345', 120, addMonthsIso(todayIso(), 12)),
+    make('Sarah Jenkins', 'admin@example.com', 'admin', 'active', 'admin123', 0, null),
+    make('Marcus Vance', 'marcus@example.com', 'user', 'active', 'user12345', 2, addMonthsIso(todayIso(), 12)),
+    make('Elena Rostova', 'elena@example.com', 'user', 'active', 'user12345', 18, addMonthsIso(todayIso(), 1)),
+    make('David Kalu', 'david@example.com', 'user', 'inactive', 'user12345', 120, addMonthsIso(todayIso(), 12)),
   ];
 }
 
@@ -186,14 +190,33 @@ class MongoUserRepo implements UserRepo {
   }
 }
 
+/**
+ * In production there is no memory fallback. It would start with the demo accounts (a known admin password), so a
+ * server that lost its database setting would let anyone in. This stands in instead and fails every call with a clear message.
+ */
+class UnconfiguredUserRepo implements UserRepo {
+  private fail(): never {
+    throw new Error('The database is not set up on this server. Set JJ_MONGODB_URI (and MONGODB_DB) in the environment variables.');
+  }
+  async list(): Promise<UserRecord[]> { return this.fail(); }
+  async get(): Promise<UserRecord | null> { return this.fail(); }
+  async getByEmail(): Promise<UserRecord | null> { return this.fail(); }
+  async create(): Promise<UserRecord> { return this.fail(); }
+  async update(): Promise<UserRecord | null> { return this.fail(); }
+}
+
 // Kept on globalThis so Next.js dev reloads do not wipe the in-memory data or reopen the database.
 // The key changed with the schema so an old dev-server copy is not reused.
-const g = globalThis as unknown as { __printpixUsersV3?: UserRepo };
-export const userRepo: UserRepo = (g.__printpixUsersV3 ??= mongoEnabled() ? new MongoUserRepo() : new MemoryUserRepo());
+const g = globalThis as unknown as { __jjUsersV4?: UserRepo };
+export const userRepo: UserRepo = (g.__jjUsersV4 ??= mongoEnabled()
+  ? new MongoUserRepo()
+  : process.env.NODE_ENV === 'production'
+    ? new UnconfiguredUserRepo()
+    : new MemoryUserRepo());
 
 /** What the browser may see. The admin Users page passes each user's event totals in `stats`. */
 export function publicUser(u: UserRecord, stats?: OwnerStats) {
-  const { passwordHash: _omit, ...rest } = u;
+  const { passwordHash: _omit, sessionId: _sid, ...rest } = u;
   return { ...rest, expired: isExpired(u), daysLeft: u.role === 'user' ? daysLeft(u.expiresAt) : null, stats: stats ?? null };
 }
 

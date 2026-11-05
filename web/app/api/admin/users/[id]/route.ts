@@ -42,6 +42,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (typeof body.password === 'string' && body.password) {
     if (body.password.length < 8) return NextResponse.json({ message: 'Password must be at least 8 characters.' }, { status: 400 });
     patch.password = body.password;
+    patch.sessionId = null; // a new password from the admin signs that person out everywhere
   }
 
   try {

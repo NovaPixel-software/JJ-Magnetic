@@ -20,6 +20,7 @@ const post = (body?: unknown): RequestInit => ({ method: 'POST', body: JSON.stri
 
 export const api = {
   login: (email: string, password: string) => call<{ user: PublicUser; redirectTo: string }>('/api/auth/login', post({ email, password })),
+  ping: () => call<{ ok: true }>('/api/auth/ping', post()),
   logout: () => call<{ ok: true }>('/api/auth/logout', post()),
   changePassword: (current: string, next: string) => call<{ ok: true }>('/api/auth/password', post({ current, next })),
   createEvent: (name: string) => call<{ event: PublicEvent }>('/api/events', post({ name })),

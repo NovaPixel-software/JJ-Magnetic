@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { publicUser, userRepo, verifyPassword } from '@/lib/server/db';
 import { formatIsoDate, isExpired } from '@/lib/server/expiry';
 import { SUPPORT_EMAIL } from '@/lib/support';
-import { cookieOptions, createSessionToken, homeFor, SESSION_COOKIE } from '@/lib/server/session';
+import { cookieOptions, createSessionToken, homeFor, newSessionId, SESSION_COOKIE } from '@/lib/server/session';
 
 // One sign-in for everyone. The account's role decides where they land.
 export async function POST(req: Request) {
@@ -24,9 +24,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: 'EXPIRED', message: `Your account expired on ${formatIsoDate(user.expiresAt!)}. Contact ${SUPPORT_EMAIL}.` }, { status: 403 });
   }
 
-  await userRepo.update(user.id, { lastLogin: new Date().toISOString() });
+  // A new session id replaces the old one, so signing in here signs the account out of any other device.
+  const sid = newSessionId();
+  const now = new Date().toISOString();
+  await userRepo.update(user.id, { lastLogin: now, lastSeenAt: now, sessionId: sid });
 
   const res = NextResponse.json({ user: publicUser(user), redirectTo: homeFor(user.role) });
-  res.cookies.set(SESSION_COOKIE, createSessionToken(user.id), cookieOptions());
+  res.cookies.set(SESSION_COOKIE, createSessionToken(user.id, sid), cookieOptions());
   return res;
 }

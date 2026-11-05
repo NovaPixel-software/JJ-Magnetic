@@ -36,7 +36,7 @@ function celebrate(from: HTMLElement | null) {
   }
 }
 
-export default function LoginForm() {
+export default function LoginForm({ notice }: { notice?: string }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -82,6 +82,13 @@ export default function LoginForm() {
           <img src="/jj-logo.png" alt="JJ Magnetic Memories" />
         </div>
       </div>
+
+      {notice && !error && (
+        <div role="status" className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-body-md text-amber-900">
+          <Icon name="schedule" className="!text-[18px]" fill />
+          <span>{notice}</span>
+        </div>
+      )}
 
       {error && (
         <div

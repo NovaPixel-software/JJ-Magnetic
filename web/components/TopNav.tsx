@@ -25,7 +25,7 @@ export default function TopNav({ user }: Props) {
     <>
       <Link
         href="/events"
-        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-label-lg transition-colors md:py-2 ${onEvents ? 'bg-surface-container text-navy' : 'text-secondary hover:bg-surface-container-low'}`}
+        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-label-lg transition-colors md:py-2 ${onEvents ? 'bg-white/15 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
       >
         <Icon name="event" className="!text-[18px] md:hidden" /> My Events
       </Link>
@@ -33,16 +33,17 @@ export default function TopNav({ user }: Props) {
   );
 
   return (
-    <header className="sticky top-0 z-30 border-b border-surface-container-high/70 bg-surface-container-lowest/95 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-white/25 bg-gradient-to-r from-[#9d2a56] via-[#c23a6c] to-[#e2688f] shadow-md shadow-[#c23a6c]/20">
       <div className="mx-auto flex max-w-[1360px] h-14 items-center gap-4 px-gutter-mobile md:h-auto md:px-margin md:py-3">
         <Link href="/events" className="shrink-0">
-          <BrandBar />
+          <BrandBar dark />
         </Link>
 
         <nav className="flex items-center gap-1 md:ml-2">{links}</nav>
 
         <div className="ml-auto flex items-center gap-2">
           <ProfileMenu
+            dark
             name={user.name}
             email={user.email}
             items={[

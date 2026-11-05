@@ -2,6 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import LogoLoader from '@/components/LogoLoader';
 import { Icon, Spinner } from '@/components/ui';
 import { resolveSetup, type ConfiguredEvent } from '@/lib/event';
 import { ApiError, api } from '@/lib/api';
@@ -417,10 +418,8 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
                 style={{ cursor: sel ? 'grab' : 'pointer' }}
               />
               {busy && (
-                <div className="absolute inset-0 flex items-center justify-center rounded bg-navy/50 text-white">
-                  <span className="flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-label-lg">
-                    <Spinner /> {job ? 'Preparing your sheet… this can take a few seconds' : 'Preparing…'}
-                  </span>
+                <div className="absolute inset-0 flex items-center justify-center rounded bg-navy/75 px-4 text-center">
+                  <LogoLoader size={84} onDark label={job ? 'Preparing your sheet… this can take a few seconds' : 'Preparing…'} />
                 </div>
               )}
             </div>

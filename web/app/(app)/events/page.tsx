@@ -1,13 +1,12 @@
 import Link from 'next/link';
 import { Icon } from '@/components/ui';
-import { DEFAULT_SIZE, PAGE_SIZES, RANGES, SORTS, type RangeId, type SortId } from '@/lib/ranges';
-import { activityRepo } from '@/lib/server/activity';
-import { downloadsOf, printsOf, toRow } from '@/lib/server/event-rows';
+import { DEFAULT_SIZE, PAGE_SIZES, SORTS, type SortId } from '@/lib/ranges';
+import { toRow } from '@/lib/server/event-rows';
 import { eventRepo } from '@/lib/server/events';
 import { requireUser } from '@/lib/server/session';
 import EventsList from './EventsList';
 
-type Params = { range?: string; q?: string; sort?: string; size?: string; page?: string };
+type Params = { q?: string; sort?: string; size?: string; page?: string };
 
 /**
  * The search, sort and page are in the address, so only one page of rows is built here and sent to the browser,
@@ -17,19 +16,14 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
   const me = await requireUser();
   const sp = await searchParams;
 
-  const range: RangeId = RANGES.some((r) => r.id === sp.range) ? (sp.range as RangeId) : 'all';
   const sort: SortId = SORTS.some((s) => s.id === sp.sort) ? (sp.sort as SortId) : 'new';
   const size = (PAGE_SIZES as readonly number[]).includes(Number(sp.size)) ? Number(sp.size) : DEFAULT_SIZE;
   const q = (sp.q ?? '').trim().slice(0, 60);
-  const hours = RANGES.find((r) => r.id === range)!.hours;
 
   const [live, deletedCount] = await Promise.all([eventRepo.listByOwner(me.id), eventRepo.countDeletedByOwner(me.id)]);
 
-  // "All time" uses the events' own counters, which also cover everything before the activity log existed.
-  // A time range counts from the log, one record for every download and print since it began; the database adds them up.
-  const counts = hours ? await activityRepo.countsByEvent(me.id, new Date(Date.now() - hours * 3600e3).toISOString()) : null;
-  const dl = (e: (typeof live)[number]) => downloadsOf(e, counts);
-  const pr = (e: (typeof live)[number]) => printsOf(e, counts);
+  const dl = (e: (typeof live)[number]) => e.downloads;
+  const pr = (e: (typeof live)[number]) => e.prints;
 
   // search, sort, then cut out the page that was asked for
   const needle = q.toLowerCase();
@@ -43,7 +37,7 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
   found.sort(by[sort]);
   const pages = Math.max(1, Math.ceil(found.length / size));
   const page = Math.min(pages, Math.max(1, parseInt(sp.page ?? '1', 10) || 1));
-  const rows = found.slice((page - 1) * size, page * size).map((e) => toRow(e, counts));
+  const rows = found.slice((page - 1) * size, page * size).map((e) => toRow(e, null));
 
   const newEvent = (
     <Link
@@ -83,7 +77,6 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
           size={size}
           q={q}
           sort={sort}
-          range={range}
           deletedCount={deletedCount}
           summary={{
             // the bars are drawn against the biggest event in the whole list, so they mean the same on every page

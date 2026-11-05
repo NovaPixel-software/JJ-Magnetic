@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import Dropdown from '@/components/Dropdown';
 import { Icon, Spinner } from '@/components/ui';
-import { DEFAULT_SIZE, PAGE_SIZES, RANGES, SORTS, type EventRow, type RangeId, type SortId } from '@/lib/ranges';
+import { DEFAULT_SIZE, PAGE_SIZES, SORTS, type EventRow, type SortId } from '@/lib/ranges';
 
 /** What the bars are drawn against: the biggest event in the whole list, so they mean the same on every page. */
 export interface Summary {
@@ -21,7 +21,6 @@ interface Props {
   size: number;
   q: string;
   sort: SortId;
-  range: RangeId;
   deletedCount: number;
   summary: Summary;
 }
@@ -32,7 +31,7 @@ const NotFinished = () => (
   </span>
 );
 
-export default function EventsList({ rows: initial, total, page, pages, size, q, sort, range, deletedCount, summary }: Props) {
+export default function EventsList({ rows: initial, total, page, pages, size, q, sort, deletedCount, summary }: Props) {
   const router = useRouter();
   const [loading, startTransition] = useTransition(); // true while the server is making the next page
   const [text, setText] = useState(q);
@@ -45,11 +44,10 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
     setRows(initial);
   }
 
-  /** The address for this page with some of the choices changed. Search, sort, size and range start again from page 1. */
-  const href = (patch: Partial<{ range: RangeId; q: string; sort: SortId; size: number; page: number }>) => {
-    const next = { range, q, sort, size, page: 1, ...patch };
+  /** The address for this page with some of the choices changed. Search, sort and size start again from page 1. */
+  const href = (patch: Partial<{ q: string; sort: SortId; size: number; page: number }>) => {
+    const next = { q, sort, size, page: 1, ...patch };
     const p = new URLSearchParams();
-    if (next.range !== 'all') p.set('range', next.range);
     if (next.q) p.set('q', next.q);
     if (next.sort !== 'new') p.set('sort', next.sort);
     if (next.size !== DEFAULT_SIZE) p.set('size', String(next.size));
@@ -73,26 +71,8 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
 
   return (
     <div className="space-y-space-lg">
-      {/* time range, search, sort */}
+      {/* search and sort */}
       <div className="space-y-space-sm">
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Time range">
-          {RANGES.map((r) => (
-            <Link
-              key={r.id}
-              href={href({ range: r.id })}
-              scroll={false}
-              aria-current={range === r.id}
-              className={`rounded-full border px-3.5 py-1.5 text-label-lg transition ${range === r.id ? 'border-primary-container bg-primary-container text-white shadow' : 'border-surface-container-high bg-white text-secondary hover:border-primary-container/50 hover:text-navy'}`}
-            >
-              {r.label}
-            </Link>
-          ))}
-        </div>
-        {range !== 'all' && (
-          <p className="flex items-start gap-1.5 text-body-sm text-secondary">
-            <Icon name="info" className="!text-[16px]" /> Time ranges count the downloads and prints made after this feature was added. "All time" has everything.
-          </p>
-        )}
         <div className="flex items-center gap-2">
           <label className="relative min-w-0 flex-1">
             <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-primary-container" />
@@ -176,7 +156,7 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
       )}
 
       {/* deleted events: gone from the list, but their numbers are still counted above and can be traced here */}
-      {deletedCount > 0 && <DeletedEvents key={`${deletedCount}-${range}`} count={deletedCount} range={range} />}
+      {deletedCount > 0 && <DeletedEvents key={deletedCount} count={deletedCount} />}
     </div>
   );
 }
@@ -211,7 +191,7 @@ function Pager({ page, pages, onGo }: { page: number; pages: number; onGo: (n: n
 }
 
 /** The deleted events. Nothing is fetched until the box is opened, and then ten at a time. */
-function DeletedEvents({ count, range }: { count: number; range: RangeId }) {
+function DeletedEvents({ count }: { count: number }) {
   const [items, setItems] = useState<EventRow[]>([]);
   const [page, setPage] = useState(0); // pages loaded so far
   const [more, setMore] = useState(true);
@@ -223,7 +203,7 @@ function DeletedEvents({ count, range }: { count: number; range: RangeId }) {
     setBusy(true);
     setFailed(false);
     try {
-      const res = await fetch(`/api/events/deleted?page=${page + 1}&range=${range}`);
+      const res = await fetch(`/api/events/deleted?page=${page + 1}`);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { rows: EventRow[]; hasMore: boolean };
       setItems((prev) => [...prev, ...data.rows]);

@@ -1,4 +1,4 @@
-# PrintPix Event Engine (web)
+# JJ Magnetic Memories (web)
 
 Next.js 15 (App Router) + React 19 + TypeScript + Tailwind. UI built from the Stitch export in
 `Downloads/stitch_magz_printing_app`.
@@ -18,7 +18,7 @@ stored in MongoDB. Without it the app keeps them in memory and everything resets
 
 | Variable | What it is |
 | --- | --- |
-| `PRINTPIX_MONGODB_URI` | Atlas connection string (Atlas > Connect > Drivers). `MONGODB_URI` also works, but this name wins. Use it on Vercel, whose MongoDB integration injects a locked `MONGODB_URI` |
+| `JJ_MONGODB_URI` | Atlas connection string (Atlas > Connect > Drivers). `MONGODB_URI` also works, but this name wins. Use it on Vercel, whose MongoDB integration injects a locked `MONGODB_URI` |
 | `MONGODB_DB` | Database name, default `printpix` |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | The first admin. Created once, only when the database has no admin yet |
 | `SESSION_SECRET` | Signs the login cookie. Without it everyone is signed out after a restart |
@@ -47,10 +47,10 @@ are **not** created, only the admin from the variables above.
 
 | Email | Password | Type | Status |
 | --- | --- | --- | --- |
-| admin@printpix.io | admin123 | admin | active |
-| marcus@printpix.io | user12345 | user | active |
-| elena@printpix.io | user12345 | user | active |
-| david@printpix.io | user12345 | user | inactive |
+| admin@example.com | admin123 | admin | active |
+| marcus@example.com | user12345 | user | active |
+| elena@example.com | user12345 | user | active |
+| david@example.com | user12345 | user | inactive |
 
 Restarting the server resets accounts to this seed.
 

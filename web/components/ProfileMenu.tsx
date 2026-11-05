@@ -13,7 +13,7 @@ export interface MenuItem {
 }
 
 /** The profile button on the right of the header. Click it to open a dropdown of account actions. */
-export default function ProfileMenu({ name, email, items }: { name: string; email: string; items: MenuItem[] }) {
+export default function ProfileMenu({ name, email, items, dark = false }: { name: string; email: string; items: MenuItem[]; dark?: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -37,11 +37,17 @@ export default function ProfileMenu({ name, email, items }: { name: string; emai
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-low py-1 pl-1 pr-2 transition hover:bg-surface-container sm:pr-3"
+        className={`flex items-center gap-2 rounded-full border py-1 pl-1 pr-2 transition sm:pr-3 ${dark ? 'border-white/30 bg-white/15 hover:bg-white/25' : 'border-surface-container-high bg-surface-container-low hover:bg-surface-container'}`}
       >
-        <Initials name={name} className="h-8 w-8" />
-        <span className="hidden max-w-[140px] truncate text-label-lg text-navy sm:block">{name}</span>
-        <Icon name="expand_more" className={`!text-[20px] text-secondary transition ${open ? 'rotate-180' : ''}`} />
+        {dark ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-label-md text-[#c23a6c]">
+            {name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')}
+          </span>
+        ) : (
+          <Initials name={name} className="h-8 w-8" />
+        )}
+        <span className={`hidden max-w-[140px] truncate text-label-lg sm:block ${dark ? 'text-white' : 'text-navy'}`}>{name}</span>
+        <Icon name="expand_more" className={`!text-[20px] transition ${dark ? 'text-white/80' : 'text-secondary'} ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (

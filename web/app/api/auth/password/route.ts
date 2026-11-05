@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { userRepo, verifyPassword } from '@/lib/server/db';
-import { getSession } from '@/lib/server/session';
+import { cookieOptions, createSessionToken, getSession, newSessionId, SESSION_COOKIE } from '@/lib/server/session';
 
 // A signed-in user (or admin) changes their own password. They must know the current one.
 export async function POST(req: Request) {
@@ -15,6 +15,10 @@ export async function POST(req: Request) {
   if (next.length < 8) return NextResponse.json({ message: 'New password must be at least 8 characters.' }, { status: 400 });
   if (next === current) return NextResponse.json({ message: 'New password must be different from the current one.' }, { status: 400 });
 
-  await userRepo.update(me.id, { password: next });
-  return NextResponse.json({ ok: true });
+  // A new password signs out every other device. This one gets a fresh session so it stays signed in.
+  const sid = newSessionId();
+  await userRepo.update(me.id, { password: next, sessionId: sid });
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(SESSION_COOKIE, createSessionToken(me.id, sid), cookieOptions());
+  return res;
 }
