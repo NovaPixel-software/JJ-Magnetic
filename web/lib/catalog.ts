@@ -201,8 +201,8 @@ const LEGACY_PAPERS: Paper[] = [
 /** The shapes the Photo Shape dropdown offers, in order. */
 export const OFFERED_SHAPE_IDS = ['round', 'square', 'rect-landscape'];
 
-/** The template sizes offered for each shape: round 58 mm, square 50 mm, and two rectangles. */
-const OFFERED_TEMPLATE_IDS = [ROUND_CUT_ID, 'magnet-square-50x50', 'magnet-rect-landscape-63.5x88.9', 'magnet-rect-landscape-114.3x88.9'];
+/** The template sizes offered for each shape: round 58 mm and square (both from the PSDs), and two rectangles. */
+const OFFERED_TEMPLATE_IDS = [ROUND_CUT_ID, SQUARE_CUT_ID, 'magnet-rect-landscape-63.5x88.9', 'magnet-rect-landscape-114.3x88.9'];
 
 export const getProduct = (id: string) => PRODUCTS.find((p) => p.id === id) ?? LEGACY_PRODUCTS.find((p) => p.id === id);
 export const getShape = (id: string) => SHAPES.find((s) => s.id === id);
