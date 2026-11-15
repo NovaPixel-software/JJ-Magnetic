@@ -303,6 +303,14 @@ function drawPhoto(ctx: CanvasRenderingContext2D, p: Photo, s: Rect, clip: ClipK
 
 export interface DrawUi {
   selected: number | null;
+  /** Radius (mm) of the round × button drawn on the selected photo. Missing or 0 means no button. */
+  removeR?: number;
+}
+
+/** Where the × button of a slot sits: inside its top right corner (on a round slot, just inside the edge at 45°). */
+export function removeBadgeAt(s: Rect, clip: ClipKind, r: number): { x: number; y: number } {
+  if (clip === 'ellipse') return { x: s.x + s.w / 2 + 0.7071 * (s.w / 2 - r), y: s.y + s.h / 2 - 0.7071 * (s.h / 2 - r) };
+  return { x: s.x + s.w - r * 1.25, y: s.y + r * 1.25 };
 }
 
 /** Draws the sheet at `pxPerMm`. With `ui`, empty slots get placeholders and the selected slot an outline. */
@@ -329,6 +337,8 @@ export function drawSheet(
       if (r.y + r.h < band.y0 - 1 || r.y > band.y1 + 1) return;
     }
     const p = slots[i];
+    // On the real sheet (print or download) a slot without a photo stays blank paper: no cut line, no outline.
+    if (!ui && !p) return;
     if (p) drawPhoto(ctx, p, s, clip, pxPerMm, !ui); // no editor overlay means this is the real sheet
 
     if (ui && !p) {
@@ -375,6 +385,29 @@ export function drawSheet(
       ctx.lineWidth = 0.9;
       ctx.strokeStyle = BRAND;
       ctx.stroke();
+
+      // the × that takes just this photo off the sheet
+      const r = ui.removeR ?? 0;
+      if (r > 0 && slots[ui.selected]) {
+        const b = removeBadgeAt(s, clip, r);
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = BRAND;
+        ctx.fill();
+        ctx.lineWidth = r * 0.14;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+        const a = r * 0.38;
+        ctx.beginPath();
+        ctx.moveTo(b.x - a, b.y - a);
+        ctx.lineTo(b.x + a, b.y + a);
+        ctx.moveTo(b.x + a, b.y - a);
+        ctx.lineTo(b.x - a, b.y + a);
+        ctx.lineWidth = r * 0.2;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
     }
   }
 }

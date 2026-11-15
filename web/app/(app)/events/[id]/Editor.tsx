@@ -7,7 +7,7 @@ import { Icon, Spinner } from '@/components/ui';
 import { resolveSetup, type ConfiguredEvent } from '@/lib/event';
 import { ApiError, api } from '@/lib/api';
 import { DEFAULT_LABEL, ensureLabelFonts, preloadFrames } from '@/lib/labels';
-import { clampPan, drawSheet, exportPng, exportScale, exportTiled, hitSlot, importPhoto, isTouchDevice, MIN_ZOOM, type SheetFormat } from '@/lib/render';
+import { clampPan, drawSheet, exportPng, exportScale, exportTiled, hitSlot, importPhoto, removeBadgeAt, isTouchDevice, MIN_ZOOM, type SheetFormat } from '@/lib/render';
 import type { PublicEvent } from '@/lib/server/events';
 import type { NameLabel, Photo, SlotData } from '@/lib/types';
 import LabelPanel from './LabelPanel';
@@ -72,12 +72,25 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     };
   }, []);
 
+  // The × on the selected photo is about 28 px across on screen whatever size the sheet is shown at, but never more
+  // than a fifth of the slot. It is drawn on the canvas, so its size is worked out in mm from the canvas's width on screen.
+  const [shownW, setShownW] = useState(0);
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ro = new ResizeObserver(() => setShownW(c.getBoundingClientRect().width));
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, []);
+  const selSlot = layout.slots[selected];
+  const badgeR = shownW && selSlot ? Math.min((14 * layout.pageW) / shownW, Math.min(selSlot.w, selSlot.h) * 0.2) : 0;
+
   /* ---- draw ---- */
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    drawSheet(c, layout, shape.clip, photos, CANVAS_PX_PER_MM, { selected });
-  }, [photos, selected, layout, shape, fontsReady]);
+    drawSheet(c, layout, shape.clip, photos, CANVAS_PX_PER_MM, { selected, removeR: badgeR });
+  }, [photos, selected, layout, shape, fontsReady, badgeR]);
 
   // Overlay designs are images, so redraw once the ones in use have arrived.
   const frameIds = photos.map((p) => p?.label?.frame).join(',');
@@ -236,6 +249,11 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     if (pointers.current.size > 2) return;
 
     const { x, y } = toMm(e);
+    // a tap on the × of the selected photo removes that one photo
+    if (badgeR && photos[selected]) {
+      const b = removeBadgeAt(layout.slots[selected], shape.clip, badgeR);
+      if (Math.hypot(x - b.x, y - b.y) <= badgeR * 1.3) return removePhoto(selected);
+    }
     const i = hitSlot(layout, shape.clip, x, y);
     if (i < 0) return;
     setSelected(i);
@@ -273,6 +291,27 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
 
   /* ---- tools for the selected slot ---- */
   const sel = photos[selected] ?? null;
+
+  /** Takes one photo off the sheet and leaves the others as they are. Its slot is empty again, with the name gone too. */
+  const removePhoto = (i: number) => {
+    const p = photos[i];
+    if (!p || busy) return;
+    p.bmp.close();
+    setPhotos((prev) => prev.map((q, idx) => (idx === i ? null : q)));
+    setBanner(null);
+  };
+
+  // On a computer the Delete key removes the selected photo, unless the cursor is in a text box (the name field, say).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      removePhoto(selected);
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  });
 
   const resetSheet = () => {
     if (hasPhotos && !confirm('Remove all photos from this sheet and start again?')) return;
@@ -480,7 +519,18 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
                 </div>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-3 lg:mt-4">
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 lg:mt-4 lg:gap-3">
+              {/* for the selected photo only; Reset Sheet in the header is the one that clears everything */}
+              {sel && (
+                <>
+                  <button type="button" onClick={() => pick(selected)} disabled={busy} className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white transition hover:bg-white/10 disabled:opacity-40">
+                    <Icon name="swap_horiz" className="!text-[18px] text-tertiary-container" /> Replace
+                  </button>
+                  <button type="button" onClick={() => removePhoto(selected)} disabled={busy} className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white transition hover:bg-white/10 disabled:opacity-40">
+                    <Icon name="delete" className="!text-[18px] text-tertiary-container" /> Remove photo
+                  </button>
+                </>
+              )}
               <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white sm:flex">
                 <Icon name="pan_tool" className="!text-[16px]" /> Drag to move · scroll to zoom
               </span>
