@@ -7,7 +7,7 @@ import { Icon, Spinner } from '@/components/ui';
 import { resolveSetup, type ConfiguredEvent } from '@/lib/event';
 import { ApiError, api } from '@/lib/api';
 import { DEFAULT_LABEL, ensureLabelFonts, preloadFrames } from '@/lib/labels';
-import { clampPan, drawSheet, exportPng, exportScale, exportTiled, hitSlot, importPhoto, removeBadgeAt, isTouchDevice, MIN_ZOOM, type SheetFormat } from '@/lib/render';
+import { clampPan, drawSheet, exportPng, exportScale, exportTiled, hitSlot, importPhoto, isTouchDevice, MIN_ZOOM, type SheetFormat } from '@/lib/render';
 import type { PublicEvent } from '@/lib/server/events';
 import type { NameLabel, Photo, SlotData } from '@/lib/types';
 import LabelPanel from './LabelPanel';
@@ -72,25 +72,12 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     };
   }, []);
 
-  // The × on the selected photo is about 28 px across on screen whatever size the sheet is shown at, but never more
-  // than a fifth of the slot. It is drawn on the canvas, so its size is worked out in mm from the canvas's width on screen.
-  const [shownW, setShownW] = useState(0);
-  useEffect(() => {
-    const c = canvasRef.current;
-    if (!c) return;
-    const ro = new ResizeObserver(() => setShownW(c.getBoundingClientRect().width));
-    ro.observe(c);
-    return () => ro.disconnect();
-  }, []);
-  const selSlot = layout.slots[selected];
-  const badgeR = shownW && selSlot ? Math.min((14 * layout.pageW) / shownW, Math.min(selSlot.w, selSlot.h) * 0.2) : 0;
-
   /* ---- draw ---- */
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    drawSheet(c, layout, shape.clip, photos, CANVAS_PX_PER_MM, { selected, removeR: badgeR });
-  }, [photos, selected, layout, shape, fontsReady, badgeR]);
+    drawSheet(c, layout, shape.clip, photos, CANVAS_PX_PER_MM, { selected });
+  }, [photos, selected, layout, shape, fontsReady]);
 
   // Overlay designs are images, so redraw once the ones in use have arrived.
   const frameIds = photos.map((p) => p?.label?.frame).join(',');
@@ -249,11 +236,6 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     if (pointers.current.size > 2) return;
 
     const { x, y } = toMm(e);
-    // a tap on the × of the selected photo removes that one photo
-    if (badgeR && photos[selected]) {
-      const b = removeBadgeAt(layout.slots[selected], shape.clip, badgeR);
-      if (Math.hypot(x - b.x, y - b.y) <= badgeR * 1.3) return removePhoto(selected);
-    }
     const i = hitSlot(layout, shape.clip, x, y);
     if (i < 0) return;
     setSelected(i);

@@ -16,6 +16,9 @@ const Label = ({ n, children, htmlFor }: { n: number; children: React.ReactNode;
 );
 
 // A new event starts on the first shape (Round) and that shape's first size and paper.
+// The open list is as wide as its button and long choices wrap, so it never sticks out past the edge of a phone screen.
+const LIST_FITS = 'max-w-full [&_button]:whitespace-normal';
+
 const SHAPES = offeredShapes();
 const DEFAULT_SHAPE = SHAPES[0].id;
 const DEFAULT_TEMPLATE = templatesForShape(DEFAULT_SHAPE)[0].id;
@@ -66,7 +69,8 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
   };
 
   return (
-    <div className="grid gap-space-lg lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+    // grid-cols-1: without it the single column on a phone grows as wide as the longest dropdown label and the page scrolls sideways
+    <div className="grid grid-cols-1 gap-space-lg lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <section className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5 shadow-sm sm:p-6">
         <h2 className="text-headline-md text-navy">Event setup</h2>
         <p className="mt-1 text-body-lg text-secondary">Choose what you are printing. Then you can add photos.</p>
@@ -75,18 +79,18 @@ export default function SetupForm({ event, onSaved, onCancel }: { event: PublicE
           <div>
             <div>
               <Label n={1} htmlFor="shape">Photo Shape</Label>
-              <Dropdown id="shape" value={shapeId} onChange={pickShape} icon={shape.icon} options={SHAPES.map((s) => ({ value: s.id, label: s.label }))} />
+              <Dropdown id="shape" listClassName={LIST_FITS}value={shapeId} onChange={pickShape} icon={shape.icon} options={SHAPES.map((s) => ({ value: s.id, label: s.label }))} />
             </div>
           </div>
 
           <div>
             <Label n={2} htmlFor="template">Template / Overlay Size</Label>
-            <Dropdown id="template" value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${t.label} · ${yieldFor(t)} per sheet` }))} />
+            <Dropdown id="template" listClassName={LIST_FITS}value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${t.label} · ${yieldFor(t)} per sheet` }))} />
           </div>
 
           <div>
             <Label n={3} htmlFor="paper">Paper Size</Label>
-            <Dropdown id="paper" value={paper.id} onChange={setPaperId} options={papers.map((p) => ({ value: p.id, label: `${p.label} · ${yieldFor(template, p)} per sheet` }))} />
+            <Dropdown id="paper" listClassName={LIST_FITS}value={paper.id} onChange={setPaperId} options={papers.map((p) => ({ value: p.id, label: `${p.label} · ${yieldFor(template, p)} per sheet` }))} />
           </div>
 
           <div className={`flex items-center gap-3 rounded-xl p-space-md ${fits ? 'bg-surface-container-low' : 'border border-error-container bg-error-container/40'}`}>
