@@ -18,8 +18,6 @@ export type SortId = (typeof SORTS)[number]['id'];
 
 export const PAGE_SIZES = [10, 25, 50] as const;
 export const DEFAULT_SIZE = 10;
-/** How many deleted events one "Load more" brings. */
-export const DELETED_PAGE = 10;
 
 export interface EventRow {
   id: string;

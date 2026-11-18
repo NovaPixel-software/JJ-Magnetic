@@ -17,7 +17,8 @@ export async function POST(req: Request) {
 
   // A new password signs out every other device. This one gets a fresh session so it stays signed in.
   const sid = newSessionId();
-  await userRepo.update(me.id, { password: next, sessionId: sid });
+  const now = new Date().toISOString();
+  await userRepo.update(me.id, { password: next, sessionId: sid, lastSeenAt: now, ...(me.role === 'user' ? { sessions: [{ sid, seenAt: now, createdAt: now }] } : {}) });
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, createSessionToken(me.id, sid), cookieOptions());
   return res;

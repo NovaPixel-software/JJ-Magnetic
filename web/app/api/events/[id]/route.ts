@@ -30,3 +30,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return NextResponse.json({ event: updated ? publicEvent(updated) : null });
 }
 
+
+// The owner deletes an event. It leaves their list, but the record and its downloads and prints are kept, so the
+// totals (the owner's own and the ones the admin sees) do not go down.
+export async function DELETE(_req: Request, { params }: Ctx) {
+  const me = await getSession();
+  if (!me) return NextResponse.json({ message: 'Not signed in.' }, { status: 401 });
+  if (me.role !== 'user') return NextResponse.json({ message: 'Only users have events.' }, { status: 403 });
+
+  const { id } = await params;
+  // the owner is part of the delete itself, so another user's event is simply "not found"
+  if (!(await eventRepo.delete(id, me.id))) return NextResponse.json({ message: 'Event not found.' }, { status: 404 });
+  return NextResponse.json({ ok: true });
+}

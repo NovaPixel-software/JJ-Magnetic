@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { MONTH_TZ, monthOf } from './activity';
 import { getDb, mongoEnabled } from './mongo';
 
 /*
@@ -58,10 +59,17 @@ export interface EventRepo {
    * `events` counts only live ones. Owners with no events are missing from the result.
    */
   statsByOwner(ownerId?: string): Promise<Record<string, OwnerStats>>;
+  /** How many events the owner created in each month (YYYY-MM, Indian time). Events the owner deleted are counted too. */
+  createdByMonth(ownerId: string): Promise<Record<string, number>>;
   setSetup(id: string, setup: EventSetup): Promise<EventRecord | null>;
   increment(id: string, kind: 'downloads' | 'prints'): Promise<EventRecord | null>;
   /** Marks the event deleted if it is live and belongs to this owner. True when something changed. */
   delete(id: string, ownerId: string): Promise<boolean>;
+  /**
+   * Takes downloads and prints off an event's counters (never below zero), live or deleted. Used when the admin
+   * deletes a month of counts for good.
+   */
+  subtract(id: string, ownerId: string, downloads: number, prints: number): Promise<void>;
 }
 
 class MemoryEventRepo implements EventRepo {
@@ -98,6 +106,11 @@ class MemoryEventRepo implements EventRepo {
     }
     return out;
   }
+  async createdByMonth(ownerId: string) {
+    const out: Record<string, number> = {};
+    for (const e of this.events) if (e.ownerId === ownerId) out[monthOf(e.createdAt)] = (out[monthOf(e.createdAt)] ?? 0) + 1;
+    return out;
+  }
   async setSetup(id: string, setup: EventSetup) {
     const event = this.events.find((e) => e.id === id && !e.deletedAt);
     if (!event) return null;
@@ -116,6 +129,12 @@ class MemoryEventRepo implements EventRepo {
     if (!event) return false;
     event.deletedAt = new Date().toISOString();
     return true;
+  }
+  async subtract(id: string, ownerId: string, downloads: number, prints: number) {
+    const event = this.events.find((e) => e.id === id && e.ownerId === ownerId);
+    if (!event) return;
+    event.downloads = Math.max(0, event.downloads - downloads);
+    event.prints = Math.max(0, event.prints - prints);
   }
 }
 
@@ -164,6 +183,16 @@ class MongoEventRepo implements EventRepo {
       .toArray();
     return Object.fromEntries(rows.map((r) => [r._id, { events: r.events, downloads: r.downloads, prints: r.prints }]));
   }
+  async createdByMonth(ownerId: string) {
+    // createdAt is kept as an ISO text, so it is turned into a date to find its month in Indian time
+    const rows = await (await this.col())
+      .aggregate<{ _id: string; n: number }>([
+        { $match: { ownerId } },
+        { $group: { _id: { $dateToString: { date: { $convert: { input: '$createdAt', to: 'date', onError: null, onNull: null } }, format: '%Y-%m', timezone: MONTH_TZ } }, n: { $sum: 1 } } },
+      ])
+      .toArray();
+    return Object.fromEntries(rows.filter((r) => r._id).map((r) => [r._id, r.n])); // a record with no date has no month
+  }
   async setSetup(id: string, setup: EventSetup) {
     const doc = await (await this.col()).findOneAndUpdate({ _id: id, ...LIVE }, { $set: { setup } }, { returnDocument: 'after' });
     return doc ? toRecord(doc) : null;
@@ -178,12 +207,18 @@ class MongoEventRepo implements EventRepo {
     const res = await (await this.col()).updateOne({ _id: id, ownerId, ...LIVE }, { $set: { deletedAt: new Date().toISOString() } });
     return res.modifiedCount === 1;
   }
+  async subtract(id: string, ownerId: string, downloads: number, prints: number) {
+    // one step in the database, so a download counted at the same moment is not lost, and never below zero
+    await (await this.col()).updateOne({ _id: id, ownerId }, [
+      { $set: { downloads: { $max: [0, { $subtract: [{ $ifNull: ['$downloads', 0] }, downloads] }] }, prints: { $max: [0, { $subtract: [{ $ifNull: ['$prints', 0] }, prints] }] } } },
+    ]);
+  }
 }
 
 // Kept on globalThis so Next.js dev reloads do not wipe the in-memory data.
 // The key changed with the schema so an old dev-server copy is not reused.
-const g = globalThis as unknown as { __jjEventsV6?: EventRepo };
-export const eventRepo: EventRepo = (g.__jjEventsV6 ??= mongoEnabled() ? new MongoEventRepo() : new MemoryEventRepo());
+const g = globalThis as unknown as { __jjEventsV9?: EventRepo };
+export const eventRepo: EventRepo = (g.__jjEventsV9 ??= mongoEnabled() ? new MongoEventRepo() : new MemoryEventRepo());
 
 /** What the browser is allowed to see. */
 export function publicEvent(e: EventRecord) {

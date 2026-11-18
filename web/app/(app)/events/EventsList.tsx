@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import Dropdown from '@/components/Dropdown';
 import { Icon, Spinner } from '@/components/ui';
+import { api, ApiError } from '@/lib/api';
 import { DEFAULT_SIZE, PAGE_SIZES, SORTS, type EventRow, type SortId } from '@/lib/ranges';
 
 /** What the bars are drawn against: the biggest event in the whole list, so they mean the same on every page. */
@@ -21,7 +22,6 @@ interface Props {
   size: number;
   q: string;
   sort: SortId;
-  deletedCount: number;
   summary: Summary;
 }
 
@@ -31,11 +31,12 @@ const NotFinished = () => (
   </span>
 );
 
-export default function EventsList({ rows: initial, total, page, pages, size, q, sort, deletedCount, summary }: Props) {
+export default function EventsList({ rows: initial, total, page, pages, size, q, sort, summary }: Props) {
   const router = useRouter();
   const [loading, startTransition] = useTransition(); // true while the server is making the next page
   const [text, setText] = useState(q);
   const [rows, setRows] = useState(initial);
+  const [deleting, setDeleting] = useState<EventRow | null>(null); // the event the delete question is about
 
   // The server sends new rows for a new page, search or sort, so take them.
   const [seen, setSeen] = useState(initial);
@@ -108,7 +109,7 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
                       {h}
                     </th>
                   ))}
-                  <th className="w-24 px-2 py-3" />
+                  <th className="w-28 px-2 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-container">
@@ -129,6 +130,18 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
                       <Metric value={r.prints} max={summary.maxPrints} unit="printed" dark />
                     </td>
                     <td className="whitespace-nowrap px-2 py-3 text-right text-secondary">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleting(r);
+                        }}
+                        className="mr-1 inline-flex h-10 w-10 items-center justify-center rounded-lg align-middle text-secondary transition hover:bg-error-container/60 hover:text-error"
+                        aria-label={`Delete ${r.name}`}
+                        title="Delete event"
+                      >
+                        <Icon name="delete" className="!text-[20px]" />
+                      </button>
                       <Icon name="chevron_right" className="align-middle" />
                     </td>
                   </tr>
@@ -155,8 +168,72 @@ export default function EventsList({ rows: initial, total, page, pages, size, q,
         </div>
       )}
 
-      {/* deleted events: gone from the list, but their numbers are still counted above and can be traced here */}
-      {deletedCount > 0 && <DeletedEvents key={deletedCount} count={deletedCount} />}
+      {deleting && (
+        <DeleteDialog
+          row={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            // out of the list at once, then the server sends the page again (the bars and the pages)
+            setRows((list) => list.filter((x) => x.id !== deleting.id));
+            setDeleting(null);
+            startTransition(() => router.refresh());
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Asks before an event is deleted, and says what is kept. */
+function DeleteDialog({ row, onClose, onDeleted }: { row: EventRow; onClose: () => void; onDeleted: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const remove = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.deleteEvent(row.id);
+      onDeleted();
+    } catch (e) {
+      // already deleted somewhere else: the list just needs to catch up
+      if (e instanceof ApiError && e.status === 404) return onDeleted();
+      setError(e instanceof ApiError ? e.message : 'Could not delete. Check your connection.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm" onClick={busy ? undefined : onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="delete-event-title" onClick={(e) => e.stopPropagation()} className="w-full max-w-md space-y-4 rounded-2xl bg-surface-container-lowest p-5 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-error-container/60 text-error">
+            <Icon name="delete" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="delete-event-title" className="break-words text-headline-sm text-navy">
+              Delete “{row.name}”?
+            </h2>
+            <p className="mt-1 text-body-md text-secondary">
+              It leaves your list and cannot be opened again. Its {row.downloads} {row.downloads === 1 ? 'download' : 'downloads'} and {row.prints}{' '}
+              {row.prints === 1 ? 'print' : 'prints'} stay in your account's totals.
+            </p>
+          </div>
+        </div>
+        {error && (
+          <p role="alert" className="rounded-lg bg-error-container/50 px-3 py-2 text-body-md text-on-error-container">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-lg px-4 text-label-lg text-secondary hover:bg-surface-container disabled:opacity-60">
+            Cancel
+          </button>
+          <button type="button" onClick={() => void remove()} disabled={busy} autoFocus className="flex h-10 items-center gap-2 rounded-lg bg-error px-5 text-label-lg text-white hover:opacity-90 disabled:opacity-60">
+            {busy && <Spinner className="h-4 w-4" />} Delete event
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -187,90 +264,6 @@ function Pager({ page, pages, onGo }: { page: number; pages: number; onGo: (n: n
         <Icon name="chevron_right" />
       </button>
     </nav>
-  );
-}
-
-/** The deleted events. Nothing is fetched until the box is opened, and then ten at a time. */
-function DeletedEvents({ count }: { count: number }) {
-  const [items, setItems] = useState<EventRow[]>([]);
-  const [page, setPage] = useState(0); // pages loaded so far
-  const [more, setMore] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  const load = async () => {
-    if (busy) return;
-    setBusy(true);
-    setFailed(false);
-    try {
-      const res = await fetch(`/api/events/deleted?page=${page + 1}`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { rows: EventRow[]; hasMore: boolean };
-      setItems((prev) => [...prev, ...data.rows]);
-      setPage((p) => p + 1);
-      setMore(data.hasMore);
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <details
-      className="group rounded-2xl border border-surface-container-high bg-white/70"
-      onToggle={(e) => {
-        if ((e.currentTarget as HTMLDetailsElement).open && page === 0) void load();
-      }}
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 text-label-lg text-navy">
-        <Icon name="delete_history" className="text-primary-container" />
-        Deleted events ({count})
-        <span className="ml-auto hidden text-body-sm font-normal text-secondary sm:inline">Their downloads and prints are kept here</span>
-        <Icon name="expand_more" className="transition group-open:rotate-180" />
-      </summary>
-      <div className="border-t border-surface-container-high">
-        {items.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-body-md">
-              <thead className="text-label-md text-secondary">
-                <tr>
-                  {['Event', 'Setup', 'Deleted', 'Downloads', 'Prints'].map((h, i) => (
-                    <th key={h} className={`px-4 py-2.5 font-semibold ${i >= 3 ? 'text-right' : ''}`}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-container">
-                {items.map((r) => (
-                  <tr key={r.id} className="text-secondary">
-                    <td className="px-4 py-2.5 font-semibold text-navy">{r.name}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5">{r.setup ?? '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5">{r.deleted}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-navy">{r.downloads}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-navy">{r.prints}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-col items-center gap-2 px-4 py-3">
-          {busy && (
-            <p className="flex items-center gap-2 text-body-md text-secondary">
-              <Spinner className="h-4 w-4 text-primary-container" /> Loading…
-            </p>
-          )}
-          {failed && <p className="text-body-md text-error">Could not load. Check your connection.</p>}
-          {!busy && (failed || (more && page > 0)) && (
-            <button onClick={() => void load()} className="h-9 rounded-lg bg-surface-container px-4 text-label-lg text-navy hover:bg-surface-container-high">
-              {failed ? 'Try again' : 'Load more'}
-            </button>
-          )}
-        </div>
-      </div>
-    </details>
   );
 }
 

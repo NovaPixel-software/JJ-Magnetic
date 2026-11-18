@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { publicUser, userRepo } from '@/lib/server/db';
+import { MAX_DEVICES_LIMIT, parseMaxDevices, publicUser, sessionsOf, userRepo } from '@/lib/server/db';
 import { eventRepo, NO_STATS } from '@/lib/server/events';
 import { isIsoDate } from '@/lib/server/expiry';
 import { getSession } from '@/lib/server/session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Admin edits a user: name, email, expiry date, active/inactive, or a new password.
+// Admin edits a user: name, email, expiry date, active/inactive, how many devices, or a new password.
 export async function PATCH(req: Request, { params }: Ctx) {
   const me = await getSession();
   if (!me) return NextResponse.json({ message: 'Not signed in.' }, { status: 401 });
@@ -42,7 +42,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (typeof body.password === 'string' && body.password) {
     if (body.password.length < 8) return NextResponse.json({ message: 'Password must be at least 8 characters.' }, { status: 400 });
     patch.password = body.password;
-    patch.sessionId = null; // a new password from the admin signs that person out everywhere
+    // a new password from the admin signs that person out on every device
+    patch.sessionId = null;
+    patch.sessions = [];
+  }
+
+  // How many devices the user may be signed in on at once. Lowering it signs out the devices unused the longest.
+  if (body.maxDevices !== undefined) {
+    const max = parseMaxDevices(body.maxDevices);
+    if (max === null) return NextResponse.json({ message: `Devices allowed must be a whole number from 1 to ${MAX_DEVICES_LIMIT}.` }, { status: 400 });
+    patch.maxDevices = max;
+    // An account from before the device list keeps its one signed-in device when the number changes.
+    if (!user.sessions && user.sessionId && !patch.sessions) patch.sessions = sessionsOf(user);
   }
 
   try {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { publicUser, userRepo, verifyPassword } from '@/lib/server/db';
+import { maxDevicesOf, publicUser, sessionsOf, userRepo, verifyPassword } from '@/lib/server/db';
 import { formatIsoDate, isExpired } from '@/lib/server/expiry';
 import { SUPPORT_EMAIL } from '@/lib/support';
 import { cookieOptions, createSessionToken, homeFor, newSessionId, SESSION_COOKIE } from '@/lib/server/session';
@@ -24,10 +24,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: 'EXPIRED', message: `Your account expired on ${formatIsoDate(user.expiresAt!)}. Contact ${SUPPORT_EMAIL}.` }, { status: 403 });
   }
 
-  // A new session id replaces the old one, so signing in here signs the account out of any other device.
   const sid = newSessionId();
   const now = new Date().toISOString();
-  await userRepo.update(user.id, { lastLogin: now, lastSeenAt: now, sessionId: sid });
+  if (user.role === 'user') {
+    // An account from before the device list has one signed-in device that is not in a list yet. It is written
+    // down first, so it is counted like any other instead of being dropped by this sign-in.
+    if (!user.sessions && user.sessionId) await userRepo.update(user.id, { sessions: sessionsOf(user) });
+    // This device joins the list. Over the user's limit, the device unused the longest is signed out.
+    await userRepo.addSession(user.id, { sid, seenAt: now, createdAt: now }, maxDevicesOf(user));
+  } else {
+    await userRepo.update(user.id, { lastLogin: now, lastSeenAt: now, sessionId: sid });
+  }
 
   const res = NextResponse.json({ user: publicUser(user), redirectTo: homeFor(user.role) });
   res.cookies.set(SESSION_COOKIE, createSessionToken(user.id, sid), cookieOptions());

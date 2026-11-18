@@ -20,7 +20,8 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
   const size = (PAGE_SIZES as readonly number[]).includes(Number(sp.size)) ? Number(sp.size) : DEFAULT_SIZE;
   const q = (sp.q ?? '').trim().slice(0, 60);
 
-  const [live, deletedCount] = await Promise.all([eventRepo.listByOwner(me.id), eventRepo.countDeletedByOwner(me.id)]);
+  // A deleted event is not shown to its owner at all. Its downloads and prints stay in the totals the admin sees.
+  const live = await eventRepo.listByOwner(me.id);
 
   const dl = (e: (typeof live)[number]) => e.downloads;
   const pr = (e: (typeof live)[number]) => e.prints;
@@ -56,10 +57,10 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
           <p className="mt-1 text-body-lg text-secondary">See how many sheets were downloaded and printed for every event.</p>
         </div>
         {/* the top bar no longer has a New Event button, so this is the way to make one (the empty state below has its own) */}
-        {(live.length > 0 || deletedCount > 0) && newEvent}
+        {live.length > 0 && newEvent}
       </div>
 
-      {live.length === 0 && deletedCount === 0 ? (
+      {live.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-outline-variant bg-surface-container-lowest p-10 text-center">
           <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary-fixed text-primary">
             <Icon name="event" className="!text-[28px]" />
@@ -77,7 +78,6 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
           size={size}
           q={q}
           sort={sort}
-          deletedCount={deletedCount}
           summary={{
             // the bars are drawn against the biggest event in the whole list, so they mean the same on every page
             maxDownloads: Math.max(1, ...live.map(dl)),

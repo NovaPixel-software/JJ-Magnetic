@@ -1,4 +1,5 @@
 import type { PublicUser } from './server/db';
+import type { MonthRow } from './server/activity';
 import type { EventSetup, PublicEvent } from './server/events';
 
 export type { PublicUser };
@@ -26,10 +27,14 @@ export const api = {
   createEvent: (name: string) => call<{ event: PublicEvent }>('/api/events', post({ name })),
   setupEvent: (id: string, setup: EventSetup) =>
     call<{ event: PublicEvent }>(`/api/events/${id}`, { method: 'PATCH', body: JSON.stringify(setup) }),
+  deleteEvent: (id: string) => call<{ ok: true }>(`/api/events/${id}`, { method: 'DELETE' }),
   countEvent: (id: string, kind: 'download' | 'print', detail?: { format?: 'jpeg' | 'pdf' | 'png'; dpi?: number; photos?: number }) =>
     call<{ event: PublicEvent }>(`/api/events/${id}/count`, post({ kind, ...detail })),
   users: () => call<{ users: PublicUser[] }>('/api/admin/users'),
-  createUser: (body: { name: string; email: string; password: string; expiresAt?: string }) => call<{ user: PublicUser }>('/api/admin/users', post(body)),
-  updateUser: (id: string, body: { name?: string; email?: string; expiresAt?: string; status?: 'active' | 'inactive'; password?: string }) =>
+  userActivity: (id: string) => call<{ months: MonthRow[]; total: { downloads: number; prints: number; events: number } }>(`/api/admin/users/${id}/activity`),
+  deleteUserMonth: (id: string, month: string) =>
+    call<{ months: MonthRow[]; total: { downloads: number; prints: number; events: number }; removed: number }>(`/api/admin/users/${id}/activity?month=${month}`, { method: 'DELETE' }),
+  createUser: (body: { name: string; email: string; password: string; expiresAt?: string; maxDevices?: number }) => call<{ user: PublicUser }>('/api/admin/users', post(body)),
+  updateUser: (id: string, body: { name?: string; email?: string; expiresAt?: string; status?: 'active' | 'inactive'; password?: string; maxDevices?: number }) =>
     call<{ user: PublicUser }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };

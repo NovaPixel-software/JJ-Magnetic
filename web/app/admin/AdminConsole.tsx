@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ChangePasswordForm from '@/components/ChangePasswordForm';
 import Dropdown from '@/components/Dropdown';
 import ProfileMenu from '@/components/ProfileMenu';
@@ -45,6 +45,9 @@ const genPassword = () => {
   return [...bytes].map((b) => chars[b % chars.length]).join('');
 };
 
+/** The most devices an admin can allow one user. The server enforces the same limit. */
+const MAX_DEVICES = 50;
+
 const inputClass =
   'h-10 w-full rounded-lg border border-surface-container-high bg-surface-container-low px-3 text-body-lg outline-none focus:border-tertiary-container focus:ring-[3px] focus:ring-tertiary-container/20';
 
@@ -53,7 +56,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
   const [users, setUsers] = useState(initialUsers);
   const [tab, setTab] = useState<Tab>('all');
   const [query, setQuery] = useState('');
-  const [dialog, setDialog] = useState<'add' | 'myPassword' | { edit: PublicUser } | null>(null);
+  const [dialog, setDialog] = useState<'add' | 'myPassword' | { edit: PublicUser } | { monthly: PublicUser } | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -192,9 +195,15 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                         <Expiry u={u} />
                       </dd>
                     </div>
-                    <div className="col-span-2">
+                    <div>
                       <dt className="text-secondary">Last login</dt>
                       <dd className="text-navy">{ago(u.lastLogin)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-secondary">Devices</dt>
+                      <dd>
+                        <Devices u={u} />
+                      </dd>
                     </div>
                   </dl>
                   <div className="grid grid-cols-3 divide-x divide-surface-container rounded-lg border border-surface-container text-center">
@@ -202,6 +211,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                     <MiniStat label="Downloads" value={statsOf(u).downloads} />
                     <MiniStat label="Prints" value={statsOf(u).prints} />
                   </div>
+                  <MonthlyButton onClick={() => setDialog({ monthly: u })} className="h-10 w-full" />
                   <div className="grid grid-cols-2 gap-2">
                     <EditButton onClick={() => setDialog({ edit: u })} className="h-10" />
                     <StatusButton on={u.status === 'active'} busy={pending === u.id} onClick={() => setStatus(u, u.status === 'active' ? 'inactive' : 'active')} className="h-10" />
@@ -217,8 +227,8 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
             <table className="w-full text-left text-body-lg">
               <thead className="bg-surface-container-low text-label-md text-secondary">
                 <tr>
-                  {['User', 'Status', 'Created', 'Expires', 'Events', 'Downloads', 'Prints', 'Last login', 'Actions'].map((h, i) => (
-                    <th key={h} className={`whitespace-nowrap px-4 py-3 font-semibold ${i >= 4 && i <= 6 ? 'text-right' : ''} ${i === 8 ? 'text-right' : ''}`}>
+                  {['User', 'Status', 'Created', 'Expires', 'Devices', 'Events', 'Downloads', 'Prints', 'Last login', 'Actions'].map((h, i) => (
+                    <th key={h} className={`whitespace-nowrap px-4 py-3 font-semibold ${i >= 5 && i <= 7 ? 'text-right' : ''} ${i === 9 ? 'text-right' : ''}`}>
                       {h}
                     </th>
                   ))}
@@ -245,12 +255,16 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                       <td className="whitespace-nowrap px-4 py-3">
                         <Expiry u={u} />
                       </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <Devices u={u} />
+                      </td>
                       <td className="px-4 py-3 text-right font-semibold text-navy">{statsOf(u).events}</td>
                       <td className="px-4 py-3 text-right font-semibold text-navy">{statsOf(u).downloads}</td>
                       <td className="px-4 py-3 text-right font-semibold text-navy">{statsOf(u).prints}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-navy">{ago(u.lastLogin)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
+                          <MonthlyButton onClick={() => setDialog({ monthly: u })} className="px-3 py-2" />
                           <EditButton onClick={() => setDialog({ edit: u })} className="px-3 py-2" />
                           <StatusButton on={u.status === 'active'} busy={pending === u.id} onClick={() => setStatus(u, u.status === 'active' ? 'inactive' : 'active')} className="min-w-[130px] py-2" />
                         </div>
@@ -260,7 +274,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-14 text-center text-secondary">
+                    <td colSpan={10} className="px-4 py-14 text-center text-secondary">
                       {users.length === 0 ? 'No users yet. Add the first one.' : 'No users match this view.'}
                     </td>
                   </tr>
@@ -281,7 +295,18 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
           }}
         />
       )}
-      {dialog && typeof dialog === 'object' && (
+      {dialog && typeof dialog === 'object' && 'monthly' in dialog && (
+        <MonthlyDialog
+          user={dialog.monthly}
+          onClose={() => setDialog(null)}
+          onTotals={(id, t, what) => {
+            // the list behind the dialog shows the same totals
+            setUsers((prev) => prev.map((x) => (x.id === id ? { ...x, stats: { ...statsOf(x), downloads: t.downloads, prints: t.prints } } : x)));
+            flash(`${what} deleted.`);
+          }}
+        />
+      )}
+      {dialog && typeof dialog === 'object' && 'edit' in dialog && (
         <EditUserDialog
           user={dialog.edit}
           onClose={() => setDialog(null)}
@@ -341,6 +366,17 @@ function Expiry({ u }: { u: PublicUser }) {
   );
 }
 
+/** How many devices the user may be signed in on, with how many are in use right now under it. */
+function Devices({ u }: { u: PublicUser }) {
+  const inUse = u.devicesInUse ?? 0;
+  return (
+    <span className="block leading-tight">
+      <span className="text-navy">{u.maxDevices} allowed</span>
+      <span className={`block text-body-sm ${inUse > 0 ? 'text-emerald-700' : 'text-secondary'}`}>{inUse} in use now</span>
+    </span>
+  );
+}
+
 function StatusPill({ state }: { state: State }) {
   const look = {
     active: { box: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500', label: 'Active' },
@@ -351,6 +387,168 @@ function StatusPill({ state }: { state: State }) {
     <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-label-md ${look.box}`}>
       <span className={`h-2 w-2 rounded-full ${look.dot}`} /> {look.label}
     </span>
+  );
+}
+
+function MonthlyButton({ onClick, className = '' }: { onClick: () => void; className?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-surface-container-high text-label-md text-primary-container hover:bg-surface-container-low ${className}`}
+    >
+      <Icon name="calendar_month" className="!text-[16px]" /> Monthly
+    </button>
+  );
+}
+
+const monthName = (ym: string) => new Date(ym + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+/** One user's downloads and prints month by month, with the all-time total. Events the user deleted are still counted. */
+function MonthlyDialog({ user, onClose, onTotals }: { user: PublicUser; onClose: () => void; onTotals: (id: string, total: { downloads: number; prints: number }, what: string) => void }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.userActivity>> | null>(null);
+  const [error, setError] = useState('');
+  const [tries, setTries] = useState(0);
+  const [asking, setAsking] = useState<string | null>(null); // the month the delete question is about
+  const [busy, setBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const removeMonth = async (month: string) => {
+    setBusy(true);
+    setDeleteError('');
+    try {
+      const d = await api.deleteUserMonth(user.id, month);
+      setData(d);
+      setAsking(null);
+      onTotals(user.id, d.total, monthName(month));
+    } catch (e) {
+      setDeleteError(e instanceof ApiError ? e.message : 'Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    let live = true;
+    setError('');
+    api
+      .userActivity(user.id)
+      .then((d) => live && setData(d))
+      .catch((e) => live && setError(e instanceof ApiError ? e.message : 'Could not reach the server.'));
+    return () => {
+      live = false;
+    };
+  }, [user.id, tries]);
+
+  // What was counted before the month by month records began is in the total but in no month.
+  const inMonths = (data?.months ?? []).reduce((t, m) => ({ downloads: t.downloads + m.downloads, prints: t.prints + m.prints }), { downloads: 0, prints: 0 });
+  const earlier = data ? { downloads: Math.max(0, data.total.downloads - inMonths.downloads), prints: Math.max(0, data.total.prints - inMonths.prints) } : null;
+  const num = 'px-3 py-2.5 text-right font-semibold tabular-nums text-navy';
+
+  return (
+    <Modal title="Monthly counts" subtitle={`${user.name} · ${user.email}`} onClose={onClose}>
+      {error ? (
+        <div className="space-y-3">
+          <ErrorNote text={error} />
+          <button onClick={() => setTries((n) => n + 1)} className="h-10 rounded-lg bg-surface-container px-4 text-label-lg text-navy hover:bg-surface-container-high">
+            Try again
+          </button>
+        </div>
+      ) : !data || !earlier ? (
+        <p className="flex items-center gap-2 py-6 text-body-md text-secondary">
+          <Spinner className="h-4 w-4 text-primary-container" /> Loading…
+        </p>
+      ) : (
+        <>
+          <div className="overflow-hidden rounded-xl border border-surface-container-high">
+            <table className="w-full text-left text-body-lg">
+              <thead className="bg-surface-container-low text-label-md text-secondary">
+                <tr>
+                  <th className="px-3 py-2.5 font-semibold">Month</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Events</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Downloads</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Prints</th>
+                  <th className="w-12" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-container">
+                {data.months.map((m) =>
+                  asking === m.month ? (
+                    <tr key={m.month} className="bg-error-container/30">
+                      <td colSpan={5} className="space-y-2 px-3 py-3">
+                        <p className="text-body-md text-navy">
+                          Delete <b>{monthName(m.month)}</b> for good? Its {m.downloads} {m.downloads === 1 ? 'download' : 'downloads'} and {m.prints} {m.prints === 1 ? 'print' : 'prints'} are
+                          removed from the totals and from the user&apos;s events. The events themselves stay. This cannot be undone.
+                        </p>
+                        <ErrorNote text={deleteError} />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" disabled={busy} onClick={() => setAsking(null)} className="h-9 rounded-lg px-3 text-label-lg text-secondary hover:bg-surface-container disabled:opacity-60">
+                            Cancel
+                          </button>
+                          <button type="button" disabled={busy} onClick={() => void removeMonth(m.month)} className="flex h-9 items-center gap-2 rounded-lg bg-error px-4 text-label-lg text-white hover:opacity-90 disabled:opacity-60">
+                            {busy && <Spinner className="h-4 w-4" />} Delete permanently
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={m.month}>
+                      <td className="px-3 py-2.5 text-navy">{monthName(m.month)}</td>
+                      <td className={num}>{m.events}</td>
+                      <td className={num}>{m.downloads}</td>
+                      <td className={num}>{m.prints}</td>
+                      <td className="pr-2 text-right">
+                        {/* a month with nothing counted has nothing to delete */}
+                        {(m.downloads > 0 || m.prints > 0) && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setDeleteError('');
+                            setAsking(m.month);
+                          }}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary transition hover:bg-error-container/60 hover:text-error disabled:opacity-40"
+                          aria-label={`Delete ${monthName(m.month)}`}
+                          title="Delete this month permanently"
+                        >
+                          <Icon name="delete" className="!text-[20px]" />
+                        </button>
+                        )}
+                      </td>
+                    </tr>
+                  ),
+                )}
+                {(earlier.downloads > 0 || earlier.prints > 0) && (
+                  <tr>
+                    <td className="px-3 py-2.5 text-secondary">Earlier, month not recorded</td>
+                    <td className="px-3 py-2.5 text-right text-secondary">—</td>
+                    <td className={num}>{earlier.downloads}</td>
+                    <td className={num}>{earlier.prints}</td>
+                    <td />
+                  </tr>
+                )}
+                {data.months.length === 0 && earlier.downloads === 0 && earlier.prints === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-8 text-center text-secondary">
+                      No downloads or prints yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="border-t-2 border-surface-container-high bg-surface-container-low">
+                <tr>
+                  <td className="px-3 py-2.5 text-label-lg text-navy">All time</td>
+                  <td className={num}>{data.total.events}</td>
+                  <td className={num}>{data.total.downloads}</td>
+                  <td className={num}>{data.total.prints}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="text-body-sm text-secondary">Events is how many were created in that month. Events the user deleted are still counted here. Deleting a month removes its downloads and prints for good.</p>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -381,7 +579,7 @@ function StatusButton({ on, busy, onClick, className = '' }: { on: boolean; busy
 function Modal({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="max-h-[94vh] w-full max-w-md space-y-4 overflow-auto rounded-2xl bg-surface-container-lowest p-5 shadow-2xl">
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[94vh] w-full max-w-lg space-y-4 overflow-auto rounded-2xl bg-surface-container-lowest p-5 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="min-w-0">
             <h2 className="text-headline-md text-navy">{title}</h2>
@@ -452,6 +650,19 @@ function ExpiryField({ value, onChange, from, min }: { value: string; onChange: 
   );
 }
 
+/** How many devices the user may be signed in on at the same time. Kept as text while typing, so the box can be emptied. */
+function DevicesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-label-lg text-navy">Devices allowed</span>
+      <input className={inputClass} type="number" inputMode="numeric" min={1} max={MAX_DEVICES} step={1} value={value} onChange={(e) => onChange(e.target.value)} required />
+      <span className="mt-1 block text-body-sm text-secondary">
+        How many devices can be signed in at the same time. When one more signs in, the device that was not used for the longest is signed out.
+      </span>
+    </label>
+  );
+}
+
 function Actions({ busy, onClose, label }: { busy: boolean; onClose: () => void; label: string }) {
   return (
     <div className="flex justify-end gap-3 pt-1">
@@ -478,6 +689,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState(genPassword());
   const [expiresAt, setExpiresAt] = useState(addMonths(today, 12));
+  const [maxDevices, setMaxDevices] = useState('1');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -486,7 +698,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
     setBusy(true);
     setError('');
     try {
-      const { user } = await api.createUser({ name, email, password, expiresAt });
+      const { user } = await api.createUser({ name, email, password, expiresAt, maxDevices: Number(maxDevices) });
       onCreated(user);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reach the server.');
@@ -507,6 +719,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
         </label>
         <PasswordField label="Password" value={password} onChange={setPassword} />
         <ExpiryField value={expiresAt} onChange={setExpiresAt} from={today} min={today} />
+        <DevicesField value={maxDevices} onChange={setMaxDevices} />
         <ErrorNote text={error} />
         <Actions busy={busy} onClose={onClose} label="Add user" />
       </form>
@@ -520,6 +733,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
   const [email, setEmail] = useState(user.email);
   const [expiresAt, setExpiresAt] = useState(user.expiresAt ?? addMonths(today, 12));
   const [status, setStatus] = useState<'active' | 'inactive'>(user.status);
+  const [maxDevices, setMaxDevices] = useState(String(user.maxDevices));
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -535,6 +749,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
     if (email.trim().toLowerCase() !== user.email) body.email = email.trim();
     if (expiresAt !== user.expiresAt) body.expiresAt = expiresAt;
     if (status !== user.status) body.status = status;
+    if (Number(maxDevices) !== user.maxDevices) body.maxDevices = Number(maxDevices);
     if (password) body.password = password;
     if (Object.keys(body).length === 0) return onClose();
 
@@ -566,6 +781,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
           <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         <ExpiryField value={expiresAt} onChange={setExpiresAt} from={from} />
+        <DevicesField value={maxDevices} onChange={setMaxDevices} />
         <div className="block">
           <span className="mb-1 block text-label-lg text-navy">Status</span>
           <Dropdown

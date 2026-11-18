@@ -3,6 +3,7 @@ import type { Collection } from 'mongodb';
 import type { OwnerStats } from './events';
 import { addMonthsIso, daysLeft, isExpired, todayIso } from './expiry';
 import { getDb, mongoEnabled } from './mongo';
+import { IDLE_MINUTES } from '../session-config';
 
 /*
  * Data layer. Everything the server needs goes through UserRepo, so moving to a
@@ -12,6 +13,47 @@ import { getDb, mongoEnabled } from './mongo';
 
 export type Role = 'admin' | 'user';
 export type UserStatus = 'active' | 'inactive';
+
+/** One signed-in device of a user. */
+export interface DeviceSession {
+  /** The id inside that device's session cookie. */
+  sid: string;
+  /** When that device was last seen using the app. One that is idle too long is signed out. */
+  seenAt: string;
+  createdAt: string;
+}
+
+/** How many devices a user can be signed in on at once when the admin has not set a number. */
+export const DEFAULT_MAX_DEVICES = 1;
+export const MAX_DEVICES_LIMIT = 50;
+
+/** The number of devices this user may be signed in on at once. */
+export const maxDevicesOf = (u: Pick<UserRecord, 'maxDevices'>) => Math.min(MAX_DEVICES_LIMIT, Math.max(1, Math.floor(u.maxDevices ?? DEFAULT_MAX_DEVICES)));
+
+/** A whole number from 1 to the limit, or null when the value is not one. */
+export function parseMaxDevices(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= MAX_DEVICES_LIMIT ? n : null;
+}
+
+/**
+ * The devices a user is signed in on. An account saved before there was a list has only the one `sessionId`,
+ * which counts as its single device, so nobody is signed out by the change.
+ */
+export function sessionsOf(u: Pick<UserRecord, 'sessions' | 'sessionId' | 'lastSeenAt' | 'lastLogin'>): DeviceSession[] {
+  if (u.sessions) return u.sessions;
+  return u.sessionId ? [{ sid: u.sessionId, seenAt: u.lastSeenAt ?? '', createdAt: u.lastLogin ?? '' }] : [];
+}
+
+const isLive = (s: DeviceSession, now = Date.now()) => now - (Date.parse(s.seenAt) || 0) <= IDLE_MINUTES * 60e3;
+
+/**
+ * The sessions that count: the most recently used ones, up to the user's limit. A device beyond the limit is
+ * signed out on its next request, which is also what happens when the admin lowers the number.
+ */
+export function allowedSessions(u: UserRecord): DeviceSession[] {
+  return [...sessionsOf(u)].sort((a, b) => b.seenAt.localeCompare(a.seenAt)).slice(0, maxDevicesOf(u));
+}
 
 export interface UserRecord {
   id: string;
@@ -23,14 +65,18 @@ export interface UserRecord {
   expiresAt: string | null; // YYYY-MM-DD, the last day the account works. null = never (admins)
   passwordHash: string;
   createdAt: string;
-  /** The one device that is signed in (checked for users, not for admins). Signing in somewhere else replaces it. */
+  /** The newest sign-in. Before `sessions` existed this was the one signed-in device, see sessionsOf. */
   sessionId?: string | null;
-  /** The last time the person was seen using the app. A session with none for too long ends. */
+  /** The devices a user is signed in on (not kept for admins). Never sent to the browser. */
+  sessions?: DeviceSession[];
+  /** How many devices a user may be signed in on at once. Missing means 1. Set by the admin. */
+  maxDevices?: number;
+  /** The last time the person was seen using the app, on any device. An admin's session ends when this is too long ago. */
   lastSeenAt?: string | null;
 }
 
-export type NewUser = Pick<UserRecord, 'name' | 'email' | 'role' | 'status' | 'expiresAt'> & { password: string };
-export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'status' | 'lastLogin' | 'expiresAt' | 'sessionId' | 'lastSeenAt'>> & { password?: string };
+export type NewUser = Pick<UserRecord, 'name' | 'email' | 'role' | 'status' | 'expiresAt'> & { password: string; maxDevices?: number };
+export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'status' | 'lastLogin' | 'expiresAt' | 'sessionId' | 'lastSeenAt' | 'sessions' | 'maxDevices'>> & { password?: string };
 
 export interface UserRepo {
   list(): Promise<UserRecord[]>;
@@ -38,6 +84,15 @@ export interface UserRepo {
   getByEmail(email: string): Promise<UserRecord | null>;
   create(input: NewUser): Promise<UserRecord>;
   update(id: string, patch: UserPatch): Promise<UserRecord | null>;
+  /**
+   * A user signed in on a device. The session joins the list, and only the `max` most recently used stay, so the
+   * device unused the longest is the one signed out. Done in one step, so two sign-ins at once cannot lose each other.
+   */
+  addSession(id: string, session: DeviceSession, max: number): Promise<void>;
+  /** The person is using the app right now: marks the account, and that device's session, as just seen. */
+  touchSession(id: string, sid: string | null, now: string): Promise<void>;
+  /** A device signed out, which frees its place. */
+  removeSession(id: string, sid: string): Promise<void>;
 }
 
 export function hashPassword(password: string): string {
@@ -114,6 +169,24 @@ class MemoryUserRepo implements UserRepo {
     if (password) user.passwordHash = hashPassword(password);
     return user;
   }
+  async addSession(id: string, session: DeviceSession, max: number) {
+    const user = this.users.find((u) => u.id === id);
+    if (!user) return;
+    user.sessions = [...(user.sessions ?? []), session].sort((a, b) => a.seenAt.localeCompare(b.seenAt)).slice(-max);
+    user.sessionId = session.sid;
+    user.lastLogin = user.lastSeenAt = session.seenAt;
+  }
+  async touchSession(id: string, sid: string | null, now: string) {
+    const user = this.users.find((u) => u.id === id);
+    if (!user) return;
+    user.lastSeenAt = now;
+    const s = user.sessions?.find((x) => x.sid === sid);
+    if (s) s.seenAt = now;
+  }
+  async removeSession(id: string, sid: string) {
+    const user = this.users.find((u) => u.id === id);
+    if (user?.sessions) user.sessions = user.sessions.filter((x) => x.sid !== sid);
+  }
 }
 
 type UserDoc = Omit<UserRecord, 'id'> & { _id: string };
@@ -188,6 +261,25 @@ class MongoUserRepo implements UserRepo {
     const doc = await (await this.col()).findOneAndUpdate({ _id: id }, { $set: set }, { returnDocument: 'after' });
     return doc ? toRecord(doc) : null;
   }
+  async addSession(id: string, session: DeviceSession, max: number) {
+    // $push with $sort and $slice is one atomic step: add the session, keep only the `max` most recently seen.
+    await (await this.col()).updateOne(
+      { _id: id },
+      {
+        $set: { lastLogin: session.seenAt, lastSeenAt: session.seenAt, sessionId: session.sid },
+        $push: { sessions: { $each: [session], $sort: { seenAt: 1 }, $slice: -max } },
+      },
+    );
+  }
+  async touchSession(id: string, sid: string | null, now: string) {
+    const col = await this.col();
+    // Only this device's entry is written, so devices pinging at the same moment never overwrite each other.
+    const hit = sid ? await col.updateOne({ _id: id, 'sessions.sid': sid }, { $set: { 'sessions.$.seenAt': now, lastSeenAt: now } }) : null;
+    if (!hit?.matchedCount) await col.updateOne({ _id: id }, { $set: { lastSeenAt: now } }); // an admin, or an account from before the list
+  }
+  async removeSession(id: string, sid: string) {
+    await (await this.col()).updateOne({ _id: id }, { $pull: { sessions: { sid } } });
+  }
 }
 
 /**
@@ -203,12 +295,15 @@ class UnconfiguredUserRepo implements UserRepo {
   async getByEmail(): Promise<UserRecord | null> { return this.fail(); }
   async create(): Promise<UserRecord> { return this.fail(); }
   async update(): Promise<UserRecord | null> { return this.fail(); }
+  async addSession(): Promise<void> { return this.fail(); }
+  async touchSession(): Promise<void> { return this.fail(); }
+  async removeSession(): Promise<void> { return this.fail(); }
 }
 
 // Kept on globalThis so Next.js dev reloads do not wipe the in-memory data or reopen the database.
 // The key changed with the schema so an old dev-server copy is not reused.
-const g = globalThis as unknown as { __jjUsersV4?: UserRepo };
-export const userRepo: UserRepo = (g.__jjUsersV4 ??= mongoEnabled()
+const g = globalThis as unknown as { __jjUsersV5?: UserRepo };
+export const userRepo: UserRepo = (g.__jjUsersV5 ??= mongoEnabled()
   ? new MongoUserRepo()
   : process.env.NODE_ENV === 'production'
     ? new UnconfiguredUserRepo()
@@ -216,8 +311,19 @@ export const userRepo: UserRepo = (g.__jjUsersV4 ??= mongoEnabled()
 
 /** What the browser may see. The admin Users page passes each user's event totals in `stats`. */
 export function publicUser(u: UserRecord, stats?: OwnerStats) {
-  const { passwordHash: _omit, sessionId: _sid, ...rest } = u;
-  return { ...rest, expired: isExpired(u), daysLeft: u.role === 'user' ? daysLeft(u.expiresAt) : null, stats: stats ?? null };
+  // session ids are what a cookie is checked against, so they never leave the server
+  const { passwordHash: _omit, sessionId: _sid, sessions: _sessions, ...rest } = u;
+  const isUser = u.role === 'user';
+  return {
+    ...rest,
+    expired: isExpired(u),
+    daysLeft: isUser ? daysLeft(u.expiresAt) : null,
+    stats: stats ?? null,
+    /** How many devices this user may be signed in on at once. */
+    maxDevices: maxDevicesOf(u),
+    /** How many are signed in and in use right now (idle ones are not counted). Null for an admin. */
+    devicesInUse: isUser ? allowedSessions(u).filter((s) => isLive(s)).length : null,
+  };
 }
 
 export type PublicUser = ReturnType<typeof publicUser>;
