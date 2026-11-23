@@ -10,10 +10,6 @@ export function Icon({ name, className = '', fill = false }: { name: string; cla
 
 export const BRAND_NAME = 'JJ Magnetic Memories';
 
-/** The full round logo (JJ, magnet, name and tagline). Needs a big size to read, so it is for the login page. */
-// eslint-disable-next-line @next/next/no-img-element
-export const Logo = ({ className = 'h-40' }: { className?: string }) => <img src="/jj-logo.png" alt={BRAND_NAME} className={`w-auto object-contain ${className}`} />;
-
 /**
  * The top part of the logo (the JJ with the heart and the magnet) cropped out of the picture, with the name written beside
  * it, for the small spots like the top bar. `size` is its height in px. The crop box is in the logo's own 1254 px coordinates.

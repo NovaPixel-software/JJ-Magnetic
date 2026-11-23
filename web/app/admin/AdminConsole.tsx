@@ -68,9 +68,10 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, ''); // a phone number is found whatever spaces or dashes were typed
     return users
       .filter((u) => tab === 'all' || stateOf(u) === tab)
-      .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+      .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (!!qDigits && !!u.phone && u.phone.replace(/\D/g, '').includes(qDigits)));
   }, [users, tab, query]);
 
   const flash = (msg: string) => {
@@ -164,7 +165,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name or email…"
+                placeholder="Search name, email or phone…"
                 className="h-10 w-full rounded-lg border border-surface-container-high bg-surface-container-low pl-10 pr-3 text-body-md outline-none focus:border-tertiary-container focus:ring-[3px] focus:ring-tertiary-container/20"
               />
             </div>
@@ -181,6 +182,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-label-lg text-navy">{u.name}</p>
                       <p className="truncate text-body-md text-secondary">{u.email}</p>
+                      <Phone u={u} />
                     </div>
                     <StatusPill state={s} />
                   </div>
@@ -245,6 +247,7 @@ export default function AdminConsole({ initialUsers, me }: { initialUsers: Publi
                           <div className="min-w-0">
                             <p className="truncate text-label-lg text-navy">{u.name}</p>
                             <p className="truncate text-body-md text-secondary">{u.email}</p>
+                            <Phone u={u} />
                           </div>
                         </div>
                       </td>
@@ -367,6 +370,26 @@ function Expiry({ u }: { u: PublicUser }) {
 }
 
 /** How many devices the user may be signed in on, with how many are in use right now under it. */
+/** The user's phone number as a link that calls it, or nothing when there is none. */
+function Phone({ u }: { u: PublicUser }) {
+  return u.phone ? (
+    <a href={`tel:${u.phone}`} className="flex items-center gap-1 truncate text-body-md text-secondary hover:text-navy">
+      <Icon name="call" className="!text-[14px]" /> {u.phone}
+    </a>
+  ) : null;
+}
+
+function PhoneField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-label-lg text-navy">
+        Phone number <span className="font-normal text-secondary">(optional)</span>
+      </span>
+      <input className={inputClass} type="tel" inputMode="tel" autoComplete="off" placeholder="+91 98765 43210" value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
 function Devices({ u }: { u: PublicUser }) {
   const inUse = u.devicesInUse ?? 0;
   return (
@@ -687,6 +710,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   const today = todayLocal();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState(genPassword());
   const [expiresAt, setExpiresAt] = useState(addMonths(today, 12));
   const [maxDevices, setMaxDevices] = useState('1');
@@ -698,7 +722,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
     setBusy(true);
     setError('');
     try {
-      const { user } = await api.createUser({ name, email, password, expiresAt, maxDevices: Number(maxDevices) });
+      const { user } = await api.createUser({ name, email, phone, password, expiresAt, maxDevices: Number(maxDevices) });
       onCreated(user);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reach the server.');
@@ -717,6 +741,7 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
           <span className="mb-1 block text-label-lg text-navy">Email (their login)</span>
           <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
+        <PhoneField value={phone} onChange={setPhone} />
         <PasswordField label="Password" value={password} onChange={setPassword} />
         <ExpiryField value={expiresAt} onChange={setExpiresAt} from={today} min={today} />
         <DevicesField value={maxDevices} onChange={setMaxDevices} />
@@ -731,6 +756,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
   const today = todayLocal();
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
+  const [phone, setPhone] = useState(user.phone ?? '');
   const [expiresAt, setExpiresAt] = useState(user.expiresAt ?? addMonths(today, 12));
   const [status, setStatus] = useState<'active' | 'inactive'>(user.status);
   const [maxDevices, setMaxDevices] = useState(String(user.maxDevices));
@@ -747,6 +773,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
     const body: Parameters<typeof api.updateUser>[1] = {};
     if (name.trim() !== user.name) body.name = name.trim();
     if (email.trim().toLowerCase() !== user.email) body.email = email.trim();
+    if (phone.trim() !== (user.phone ?? '')) body.phone = phone.trim();
     if (expiresAt !== user.expiresAt) body.expiresAt = expiresAt;
     if (status !== user.status) body.status = status;
     if (Number(maxDevices) !== user.maxDevices) body.maxDevices = Number(maxDevices);
@@ -780,6 +807,7 @@ function EditUserDialog({ user, onClose, onSaved }: { user: PublicUser; onClose:
           <span className="mb-1 block text-label-lg text-navy">Email (their login)</span>
           <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
+        <PhoneField value={phone} onChange={setPhone} />
         <ExpiryField value={expiresAt} onChange={setExpiresAt} from={from} />
         <DevicesField value={maxDevices} onChange={setMaxDevices} />
         <div className="block">

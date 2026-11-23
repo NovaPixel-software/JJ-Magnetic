@@ -51,9 +51,6 @@ export interface EventRepo {
   get(id: string): Promise<EventRecord | null>;
   /** The owner's live events, newest first. */
   listByOwner(ownerId: string): Promise<EventRecord[]>;
-  /** The owner's deleted events, most recently deleted first. With skip and limit, one page of them. */
-  listDeletedByOwner(ownerId: string, skip?: number, limit?: number): Promise<EventRecord[]>;
-  countDeletedByOwner(ownerId: string): Promise<number>;
   /**
    * Totals per owner id. Pass an id to total just that owner. Downloads and prints include deleted events,
    * `events` counts only live ones. Owners with no events are missing from the result.
@@ -85,15 +82,6 @@ class MemoryEventRepo implements EventRepo {
   }
   async listByOwner(ownerId: string) {
     return this.events.filter((e) => e.ownerId === ownerId && !e.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-  async listDeletedByOwner(ownerId: string, skip = 0, limit = Infinity) {
-    return this.events
-      .filter((e) => e.ownerId === ownerId && e.deletedAt)
-      .sort((a, b) => b.deletedAt!.localeCompare(a.deletedAt!))
-      .slice(skip, skip + limit);
-  }
-  async countDeletedByOwner(ownerId: string) {
-    return this.events.filter((e) => e.ownerId === ownerId && e.deletedAt).length;
   }
   async statsByOwner(ownerId?: string) {
     const out: Record<string, OwnerStats> = {};
@@ -159,13 +147,6 @@ class MongoEventRepo implements EventRepo {
   }
   async listByOwner(ownerId: string) {
     return (await (await this.col()).find({ ownerId, ...LIVE }).sort({ createdAt: -1 }).toArray()).map(toRecord);
-  }
-  async listDeletedByOwner(ownerId: string, skip = 0, limit = 0) {
-    // a limit of 0 means no limit in MongoDB
-    return (await (await this.col()).find({ ownerId, deletedAt: { $ne: null } }).sort({ deletedAt: -1 }).skip(skip).limit(limit === Infinity ? 0 : limit).toArray()).map(toRecord);
-  }
-  async countDeletedByOwner(ownerId: string) {
-    return (await this.col()).countDocuments({ ownerId, deletedAt: { $ne: null } });
   }
   async statsByOwner(ownerId?: string) {
     const rows = await (await this.col())

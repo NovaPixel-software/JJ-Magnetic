@@ -34,7 +34,7 @@ export const api = {
   userActivity: (id: string) => call<{ months: MonthRow[]; total: { downloads: number; prints: number; events: number } }>(`/api/admin/users/${id}/activity`),
   deleteUserMonth: (id: string, month: string) =>
     call<{ months: MonthRow[]; total: { downloads: number; prints: number; events: number }; removed: number }>(`/api/admin/users/${id}/activity?month=${month}`, { method: 'DELETE' }),
-  createUser: (body: { name: string; email: string; password: string; expiresAt?: string; maxDevices?: number }) => call<{ user: PublicUser }>('/api/admin/users', post(body)),
-  updateUser: (id: string, body: { name?: string; email?: string; expiresAt?: string; status?: 'active' | 'inactive'; password?: string; maxDevices?: number }) =>
+  createUser: (body: { name: string; email: string; phone?: string; password: string; expiresAt?: string; maxDevices?: number }) => call<{ user: PublicUser }>('/api/admin/users', post(body)),
+  updateUser: (id: string, body: { name?: string; email?: string; phone?: string; expiresAt?: string; status?: 'active' | 'inactive'; password?: string; maxDevices?: number }) =>
     call<{ user: PublicUser }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };

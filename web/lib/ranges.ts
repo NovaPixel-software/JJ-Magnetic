@@ -1,13 +1,5 @@
 /** Shared by the My Events page (a server component) and its list (a client component). Kept out of the client file so the server can use the values. */
 
-export const RANGES = [
-  { id: 'all', label: 'All time', hours: 0 },
-  { id: '24h', label: 'Last 24 hours', hours: 24 },
-  { id: '7d', label: '7 days', hours: 24 * 7 },
-  { id: '30d', label: '30 days', hours: 24 * 30 },
-] as const;
-export type RangeId = (typeof RANGES)[number]['id'];
-
 export const SORTS = [
   { id: 'new', label: 'Newest first' },
   { id: 'dl', label: 'Most downloads' },
@@ -28,5 +20,4 @@ export interface EventRow {
   downloads: number;
   prints: number;
   lastActivity: string | null;
-  deleted: string | null; // the day it was deleted, for the deleted events
 }

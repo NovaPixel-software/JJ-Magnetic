@@ -37,6 +37,19 @@ export function parseMaxDevices(v: unknown): number | null {
 }
 
 /**
+ * A phone number as it is kept: digits, with a leading + when one was typed. Spaces, dashes and brackets are dropped.
+ * Empty text gives '' (no number). Null when it is not a phone number (7 to 15 digits).
+ */
+export function parsePhone(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t) return '';
+  if (!/^\+?[\d\s().-]+$/.test(t)) return null;
+  const digits = t.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15 ? (t.startsWith('+') ? '+' : '') + digits : null;
+}
+
+/**
  * The devices a user is signed in on. An account saved before there was a list has only the one `sessionId`,
  * which counts as its single device, so nobody is signed out by the change.
  */
@@ -59,6 +72,8 @@ export interface UserRecord {
   id: string;
   name: string;
   email: string;
+  /** The person's phone number, for the admin to reach them. Missing or '' when none was given. */
+  phone?: string;
   role: Role;
   status: UserStatus;
   lastLogin: string | null; // ISO timestamp
@@ -75,8 +90,8 @@ export interface UserRecord {
   lastSeenAt?: string | null;
 }
 
-export type NewUser = Pick<UserRecord, 'name' | 'email' | 'role' | 'status' | 'expiresAt'> & { password: string; maxDevices?: number };
-export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'status' | 'lastLogin' | 'expiresAt' | 'sessionId' | 'lastSeenAt' | 'sessions' | 'maxDevices'>> & { password?: string };
+export type NewUser = Pick<UserRecord, 'name' | 'email' | 'role' | 'status' | 'expiresAt'> & { password: string; maxDevices?: number; phone?: string };
+export type UserPatch = Partial<Pick<UserRecord, 'name' | 'email' | 'phone' | 'status' | 'lastLogin' | 'expiresAt' | 'sessionId' | 'lastSeenAt' | 'sessions' | 'maxDevices'>> & { password?: string };
 
 export interface UserRepo {
   list(): Promise<UserRecord[]>;

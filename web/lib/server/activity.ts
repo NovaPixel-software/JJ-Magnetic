@@ -65,8 +65,6 @@ export interface ActivityRepo {
   add(input: NewActivity): Promise<ActivityRecord>;
   /** The owner's records, newest first. With `since` (an ISO time), only those made at or after it. */
   listByOwner(ownerId: string, since?: string): Promise<ActivityRecord[]>;
-  /** Downloads and prints per event id since an ISO time. Events with none are missing from the result. */
-  countsByEvent(ownerId: string, since: string): Promise<Record<string, { downloads: number; prints: number }>>;
   /** The owner's downloads and prints for every month that has any, newest month first. Deleted events are included. */
   monthlyByOwner(ownerId: string): Promise<MonthCount[]>;
   /** Downloads and prints per event id for the records made from `from` up to, not including, `to` (ISO times). */
@@ -85,9 +83,6 @@ class MemoryActivityRepo implements ActivityRepo {
   }
   async listByOwner(ownerId: string, since?: string) {
     return this.rows.filter((r) => r.ownerId === ownerId && (!since || r.createdAt >= since)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-  async countsByEvent(ownerId: string, since: string) {
-    return tally(this.rows.filter((r) => r.ownerId === ownerId && r.createdAt >= since).map((r) => ({ eventId: r.eventId, kind: r.kind, n: 1 })));
   }
   async monthlyByOwner(ownerId: string) {
     return toMonths(this.rows.filter((r) => r.ownerId === ownerId).map((r) => ({ month: monthOf(r.createdAt), kind: r.kind, n: 1 })));
@@ -131,16 +126,6 @@ class MongoActivityRepo implements ActivityRepo {
       .limit(20000)
       .toArray();
     return rows.map(({ _id, ...rest }) => ({ id: _id, ...rest }));
-  }
-  async countsByEvent(ownerId: string, since: string) {
-    // counted by the database, so the page never loads the records themselves
-    const rows = await (await this.col())
-      .aggregate<{ _id: { e: string; k: ActivityKind }; n: number }>([
-        { $match: { ownerId, createdAt: { $gte: since } } },
-        { $group: { _id: { e: '$eventId', k: '$kind' }, n: { $sum: 1 } } },
-      ])
-      .toArray();
-    return tally(rows.map((r) => ({ eventId: r._id.e, kind: r._id.k, n: r.n })));
   }
   async monthlyByOwner(ownerId: string) {
     // createdAt is kept as an ISO text, so it is turned into a date to find its month in Indian time

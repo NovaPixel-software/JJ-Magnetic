@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { MAX_DEVICES_LIMIT, parseMaxDevices, publicUser, sessionsOf, userRepo } from '@/lib/server/db';
+import { MAX_DEVICES_LIMIT, parseMaxDevices, parsePhone, publicUser, sessionsOf, userRepo } from '@/lib/server/db';
 import { eventRepo, NO_STATS } from '@/lib/server/events';
 import { isIsoDate } from '@/lib/server/expiry';
 import { getSession } from '@/lib/server/session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Admin edits a user: name, email, expiry date, active/inactive, how many devices, or a new password.
+// Admin edits a user: name, email, phone number, expiry date, active/inactive, how many devices, or a new password.
 export async function PATCH(req: Request, { params }: Ctx) {
   const me = await getSession();
   if (!me) return NextResponse.json({ message: 'Not signed in.' }, { status: 401 });
@@ -29,6 +29,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
       if (taken && taken.id !== user.id) return NextResponse.json({ message: 'Another user already has this email.' }, { status: 409 });
       patch.email = email;
     }
+  }
+
+  // An empty phone number removes the one on the account.
+  if (body.phone !== undefined) {
+    const phone = parsePhone(body.phone);
+    if (phone === null) return NextResponse.json({ message: 'Enter a valid phone number, or leave it empty.' }, { status: 400 });
+    patch.phone = phone;
   }
 
   if (body.status === 'active' || body.status === 'inactive') patch.status = body.status;

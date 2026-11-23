@@ -37,6 +37,8 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
   // Photos live in memory only. They are never saved or uploaded, and a refresh clears them.
   const [photos, setPhotos] = useState<(Photo | null)[]>(() => Array(layout.count).fill(null));
   const [selected, setSelected] = useState(0);
+  // The photo taken with Copy, waiting to be pasted into other slots. In memory only, like the photos.
+  const [copied, setCopied] = useState<Photo | null>(null);
   const [busy, setBusy] = useState(false);
   const [format, setFormat] = useState<'jpeg' | 'pdf' | 'png'>('jpeg');
   const [progress, setProgress] = useState('');
@@ -268,7 +270,11 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
     if (pointers.current.size < 2) pinch.current = null;
     const d = drag.current;
     drag.current = null; // the finger left over after a pinch does not start dragging
-    if (d && !d.moved && !photos[d.slot]) pick(d.slot);
+    // a tap on an empty slot adds a photo there: the copied one while a copy is held, else one from the device
+    if (d && !d.moved && !photos[d.slot]) {
+      if (copied) pasteInto(d.slot);
+      else pick(d.slot);
+    }
   };
 
   /* ---- tools for the selected slot ---- */
@@ -278,17 +284,78 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
   const removePhoto = (i: number) => {
     const p = photos[i];
     if (!p || busy) return;
-    p.bmp.close();
-    setPhotos((prev) => prev.map((q, idx) => (idx === i ? null : q)));
+    const next = photos.map((q, idx) => (idx === i ? null : q));
+    closeIfUnused(p.bmp, [...next, copied]);
+    setPhotos(next);
     setBanner(null);
   };
 
-  // On a computer the Delete key removes the selected photo, unless the cursor is in a text box (the name field, say).
+  /* ---- copy and paste: the same photo in more than one slot ---- */
+  /** Copies of a photo share one picture in memory, so it is freed only when no slot (and not the copied photo) still shows it. */
+  const closeIfUnused = (bmp: ImageBitmap, stillUsed: (Photo | null)[]) => {
+    if (!stillUsed.some((q) => q?.bmp === bmp)) bmp.close();
+  };
+
+  /** The photo as it goes into slot i: same crop, zoom and name, with its own copy of the name so the two can change apart. */
+  const copyFor = (from: Photo, i: number): Photo => {
+    const fresh = { ...from, label: from.label ? { ...from.label } : from.label };
+    const s = layout.slots[i];
+    return { ...fresh, ...clampPan(fresh, s.w, s.h) };
+  };
+
+  const copyPhoto = () => {
+    if (!sel || busy) return;
+    if (copied) closeIfUnused(copied.bmp, [...photos, sel]);
+    setCopied(sel);
+    setBanner(null);
+  };
+
+  const stopCopy = () => {
+    if (copied) closeIfUnused(copied.bmp, photos);
+    setCopied(null);
+  };
+
+  /** Puts the copied photo in slot i. A photo already there is replaced. */
+  const pasteInto = (i: number) => {
+    if (!copied || busy) return;
+    const old = photos[i];
+    const next = photos.map((q, idx) => (idx === i ? copyFor(copied, i) : q));
+    if (old) closeIfUnused(old.bmp, [...next, copied]);
+    setPhotos(next);
+    setSelected(i);
+    setBanner(null);
+  };
+
+  /** Fills the whole sheet with the selected photo. Other photos on the sheet are replaced, after asking. */
+  const copyToAll = () => {
+    if (!sel || busy) return;
+    const others = photos.filter((q, i) => q && i !== selected).length;
+    if (others && !confirm(`Replace the ${others} other photo${others > 1 ? 's' : ''} on this sheet with this one?`)) return;
+    const next = photos.map((q, i) => (i === selected ? q : copyFor(sel, i)));
+    photos.forEach((q) => q && closeIfUnused(q.bmp, [...next, copied]));
+    setPhotos(next);
+    setBanner(null);
+  };
+
+  // On a computer: Delete removes the selected photo, Ctrl+C copies it, Ctrl+V pastes the copy into the selected slot and
+  // Esc drops the copy. Not while the cursor is in a text box (the name field, say), where these keys belong to the text.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        if (k === 'c' && sel && !getSelection()?.toString()) {
+          e.preventDefault();
+          copyPhoto();
+        } else if (k === 'v' && copied) {
+          e.preventDefault();
+          pasteInto(selected);
+        }
+        return;
+      }
+      if (e.key === 'Escape' && copied) return stopCopy();
+      if (e.key !== 'Delete') return;
       removePhoto(selected);
     };
     addEventListener('keydown', onKey);
@@ -298,6 +365,8 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
   const resetSheet = () => {
     if (hasPhotos && !confirm('Remove all photos from this sheet and start again?')) return;
     photos.forEach((p) => p?.bmp.close());
+    copied?.bmp.close();
+    setCopied(null);
     setPhotos(Array(layout.count).fill(null));
     setSelected(0);
     setBanner(null);
@@ -511,11 +580,34 @@ export default function Editor({ event, onEvent, headerSlot }: { event: Configur
                   <button type="button" onClick={() => removePhoto(selected)} disabled={busy} className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white transition hover:bg-white/10 disabled:opacity-40">
                     <Icon name="delete" className="!text-[18px] text-tertiary-container" /> Remove photo
                   </button>
+                  <button type="button" onClick={copyPhoto} disabled={busy} className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white transition hover:bg-white/10 disabled:opacity-40">
+                    <Icon name="content_copy" className="!text-[18px] text-tertiary-container" /> Copy
+                  </button>
+                  {layout.count > 1 && (
+                    <button type="button" onClick={copyToAll} disabled={busy} className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white transition hover:bg-white/10 disabled:opacity-40">
+                      <Icon name="select_all" className="!text-[18px] text-tertiary-container" /> Copy to all
+                    </button>
+                  )}
                 </>
               )}
-              <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white sm:flex">
-                <Icon name="pan_tool" className="!text-[16px]" /> Drag to move · scroll to zoom
-              </span>
+              {copied ? (
+                // while a copy is held: a tap on an empty slot pastes it, and Paste here puts it over the selected photo
+                <span className="flex items-center gap-1 rounded-full bg-tertiary-container py-1 pl-4 pr-1 text-label-md text-navy">
+                  <Icon name="content_paste" className="!text-[16px]" /> Copied · tap an empty slot to paste
+                  {sel && sel.bmp !== copied.bmp && (
+                    <button type="button" onClick={() => pasteInto(selected)} disabled={busy} className="ml-1 rounded-full bg-navy px-3 py-1.5 text-white hover:bg-[#1f3a5c] disabled:opacity-40">
+                      Paste here
+                    </button>
+                  )}
+                  <button type="button" onClick={stopCopy} aria-label="Stop pasting" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-navy/10">
+                    <Icon name="close" className="!text-[18px]" />
+                  </button>
+                </span>
+              ) : (
+                <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-label-md text-white sm:flex">
+                  <Icon name="pan_tool" className="!text-[16px]" /> Drag to move · scroll to zoom
+                </span>
+              )}
             </div>
           </section>
 

@@ -85,8 +85,3 @@ export function computeLayout(paper: Paper, orientation: Orientation, template: 
     pxH: Math.round(pageH * PX_PER_MM),
   };
 }
-
-/** How many slots fit if the template were turned 90 degrees, to say whether the chosen yield is the best one. */
-export function rotatedYield(paper: Paper, orientation: Orientation, template: Spec): number {
-  return computeLayout(paper, orientation, { ...template, wmm: template.hmm, hmm: template.wmm, cutW: template.cutH, cutH: template.cutW }).count;
-}

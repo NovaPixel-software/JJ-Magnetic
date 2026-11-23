@@ -38,7 +38,7 @@ export default async function MyEventsPage({ searchParams }: { searchParams: Pro
   found.sort(by[sort]);
   const pages = Math.max(1, Math.ceil(found.length / size));
   const page = Math.min(pages, Math.max(1, parseInt(sp.page ?? '1', 10) || 1));
-  const rows = found.slice((page - 1) * size, page * size).map((e) => toRow(e, null));
+  const rows = found.slice((page - 1) * size, page * size).map(toRow);
 
   const newEvent = (
     <Link

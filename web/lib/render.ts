@@ -20,17 +20,6 @@ const totalAngle = (p: Pick<Photo, 'rot' | 'tilt'>) => p.rot + p.tilt;
 /** The smallest zoom the editor allows. Below 1 the whole photo shows and the rest of the slot is filled with a soft blur of it. */
 export const MIN_ZOOM = 0.25;
 
-/** The zoom at which the whole photo, turned as it is now, fits inside the slot (so nothing is cut off). */
-export function fitZoom(p: Pick<Photo, 'rot' | 'tilt' | 'bmp'>, slotW: number, slotH: number): number {
-  const r = (totalAngle(p) * Math.PI) / 180;
-  const c = Math.abs(Math.cos(r));
-  const s = Math.abs(Math.sin(r));
-  const iw = p.bmp.width;
-  const ih = p.bmp.height;
-  const whole = Math.min(slotW / (iw * c + ih * s), slotH / (iw * s + ih * c));
-  return Math.max(MIN_ZOOM, Math.min(1, whole / coverScale(iw, ih, slotW, slotH, totalAngle(p))));
-}
-
 function scaleOf(p: Photo, slotW: number, slotH: number) {
   return coverScale(p.bmp.width, p.bmp.height, slotW, slotH, totalAngle(p)) * p.zoom;
 }
